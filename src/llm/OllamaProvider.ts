@@ -120,9 +120,6 @@ export class OllamaProvider implements LLMProvider {
   }
 
   setModel(model: string): void {
-    if (!this.availableModels.includes(model)) {
-      throw new Error(`Invalid model. Available models: ${this.availableModels.join(', ')}`);
-    }
     this.currentModel = model;
   }
 

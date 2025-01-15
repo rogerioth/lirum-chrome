@@ -97,7 +97,7 @@ class OptionsManager {
         const typeSelect = document.getElementById('provider-type') as HTMLSelectElement;
         const endpointInput = document.getElementById('provider-endpoint') as HTMLInputElement;
         const apiKeyInput = document.getElementById('provider-apikey') as HTMLInputElement;
-        const modelSelect = document.getElementById('provider-model') as HTMLSelectElement;
+        const modelInput = document.getElementById('provider-model') as HTMLInputElement;
         const testButton = document.getElementById('test-provider') as HTMLButtonElement;
 
         try {
@@ -107,47 +107,46 @@ class OptionsManager {
             const isLocal = this.isLocalProvider(type);
 
             // Validate inputs
-            if (isLocal) {
-                if (!endpointInput.value) {
-                    throw new Error('Endpoint is required');
-                }
-                if (endpointInput.value && provider.validateEndpoint?.(endpointInput.value) === false) {
-                    throw new Error('Invalid endpoint URL format. Please provide a valid HTTP/HTTPS URL.');
-                }
-            } else {
-                if (!apiKeyInput.value) {
-                    throw new Error('API key is required');
-                }
-                if (apiKeyInput.value && provider.validateApiKey?.(apiKeyInput.value) === false) {
-                    throw new Error('Invalid API key format.');
-                }
+            if (!endpointInput.value) {
+                throw new Error('Endpoint is required');
+            }
+            if (endpointInput.value && provider.validateEndpoint?.(endpointInput.value) === false) {
+                throw new Error('Invalid endpoint URL format. Please provide a valid HTTP/HTTPS URL.');
             }
 
-            if (!modelSelect.value) {
-                throw new Error('Please select a model');
+            if (!isLocal && !apiKeyInput.value) {
+                throw new Error('API key is required');
             }
+            if (!isLocal && apiKeyInput.value && provider.validateApiKey?.(apiKeyInput.value) === false) {
+                throw new Error('Invalid API key format.');
+            }
+
+            // Set endpoint before initialization
+            provider.defaultEndpoint = endpointInput.value;
 
             // Initialize provider
-            if (isLocal) {
-                await provider.initialize(endpointInput.value);
-            } else {
-                await provider.initialize(apiKeyInput.value);
-            }
+            await provider.initialize(isLocal ? endpointInput.value : apiKeyInput.value);
 
-            // Set model and test connection
-            provider.setModel(modelSelect.value);
+            // Set model if provided (no validation)
+            const modelToUse = modelInput.value || provider.defaultModel;
+            provider.setModel(modelToUse);
+
             const response = await provider.complete('Hello!');
             
             await this.logger.info('Provider test successful', {
                 type,
-                model: modelSelect.value,
+                model: modelToUse,
+                endpoint: endpointInput.value,
                 response: response.content
             });
 
-            this.showMessage(`Connection test successful!\nModel: ${modelSelect.value}\nResponse: ${response.content}`, false, true);
+            this.showMessage(`Connection test successful!\nEndpoint: ${endpointInput.value}\nModel: ${modelToUse}\nResponse: ${response.content}`, false, true);
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : 'Test failed';
-            await this.logger.error('Provider test failed', { error: errorMessage });
+            await this.logger.error('Provider test failed', { 
+                error: errorMessage,
+                endpoint: endpointInput.value
+            });
             this.showMessage(errorMessage, true, true);
         } finally {
             this.setLoading(testButton, false);
@@ -339,7 +338,7 @@ class OptionsManager {
         const nameInput = document.getElementById('provider-name') as HTMLInputElement;
         const endpointInput = document.getElementById('provider-endpoint') as HTMLInputElement;
         const apiKeyInput = document.getElementById('provider-apikey') as HTMLInputElement;
-        const modelSelect = document.getElementById('provider-model') as HTMLSelectElement;
+        const modelInput = document.getElementById('provider-model') as HTMLInputElement;
         const saveButton = document.getElementById('modal-save') as HTMLButtonElement;
 
         try {
@@ -359,14 +358,10 @@ class OptionsManager {
                 throw new Error('API key is required');
             }
 
-            if (!modelSelect.value) {
-                throw new Error('Please select a model');
-            }
-
             const provider: LLMProvider = {
                 type,
                 name: nameInput.value,
-                model: modelSelect.value
+                model: modelInput.value || this.getProviderInstance(type).defaultModel
             };
 
             if (isLocal) {
