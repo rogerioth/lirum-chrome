@@ -9,14 +9,14 @@ if not exist node_modules (
 
 :: Run ESLint
 echo Running ESLint...
-call npx eslint src --ext .ts,.tsx
+call npm run lint
 
 :: Run TypeScript compiler check
 echo Running TypeScript compiler check...
-call npx tsc --noEmit
+call npm run type-check
 
 :: Run Jest tests
 echo Running Jest tests...
-call npx jest
+call npm test
 
 echo Test run completed! 

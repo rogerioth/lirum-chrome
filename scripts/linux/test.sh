@@ -10,14 +10,14 @@ fi
 
 # Run ESLint
 echo "Running ESLint..."
-npx eslint src --ext .ts,.tsx
+npm run lint
 
 # Run TypeScript compiler check
 echo "Running TypeScript compiler check..."
-npx tsc --noEmit
+npm run type-check
 
 # Run Jest tests
 echo "Running Jest tests..."
-npx jest
+npm test
 
 echo "Test run completed!" 
