@@ -1,258 +1,184 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Lirum Chrome LLMs Settings</title>
-    <style>
-        body {
-            width: 100%;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 20px;
-            font-family: Arial, sans-serif;
-        }
-        .section {
-            margin-bottom: 20px;
-            padding: 15px;
-            border: 1px solid #ccc;
-            border-radius: 5px;
-        }
-        .input-field {
-            width: 100%;
-            padding: 8px;
-            margin: 5px 0;
-            border: 1px solid #ccc;
-            border-radius: 4px;
-        }
-        .button {
-            background-color: #4CAF50;
-            color: white;
-            padding: 10px 20px;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            margin-right: 5px;
-        }
-        .button:hover {
-            background-color: #45a049;
-        }
-        .button:disabled {
-            background-color: #cccccc;
-            cursor: not-allowed;
-        }
-        #providers-list {
-            width: 100%;
-            height: 200px;
-            margin: 10px 0;
-            border: 1px solid #ccc;
-            border-radius: 4px;
-        }
-        .modal {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background-color: rgba(0,0,0,0.5);
-        }
-        .modal-content {
-            background-color: white;
-            margin: 15% auto;
-            padding: 20px;
-            border-radius: 5px;
-            width: 80%;
-            max-width: 500px;
-        }
-        .modal-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 20px;
-        }
-        .close {
-            color: #aaa;
-            font-size: 28px;
-            font-weight: bold;
-            cursor: pointer;
-        }
-        .close:hover {
-            color: black;
-        }
-        .form-group {
-            margin-bottom: 15px;
-        }
-        .form-group label {
-            display: block;
-            margin-bottom: 5px;
-        }
-        .message-container {
-            padding: 10px;
-            margin: 10px 0;
-            border-radius: 4px;
-            text-align: center;
-        }
-        .message-container.error {
-            background-color: #ffebee;
-            color: #c62828;
-        }
-        .message-container.success {
-            background-color: #e8f5e9;
-            color: #2e7d32;
-        }
-        .section-header {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            cursor: pointer;
-        }
-        .section-header h2 {
-            margin: 0;
-            flex-grow: 1;
-        }
-        #logs-container {
-            margin-top: 10px;
-        }
-        .log-filters {
-            margin-bottom: 10px;
-            padding: 5px;
-            background: #f5f5f5;
-            border-radius: 4px;
-        }
-        .log-filters label {
-            margin-right: 15px;
-            cursor: pointer;
-        }
-        #logs-content {
-            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-            font-size: 12px;
-            background: #1e1e1e;
-            color: #d4d4d4;
-            padding: 10px;
-            border-radius: 4px;
-            max-height: 400px;
-            overflow-y: auto;
-            white-space: pre-wrap;
-            margin: 0;
-        }
-        .log-entry {
-            margin: 2px 0;
-            padding: 2px 0;
-        }
-        .log-entry.info { color: #89d1f5; }
-        .log-entry.debug { color: #b5cea8; }
-        .log-entry.error { color: #f48771; }
-        .log-entry.llm { color: #c586c0; }
-        .spinner {
-            display: none;
-            width: 20px;
-            height: 20px;
-            border: 3px solid #f3f3f3;
-            border-top: 3px solid #3498db;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-            margin-right: 8px;
-            vertical-align: middle;
-        }
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-        .button-with-spinner {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-        }
-    </style>
+  <title>Lirum Settings</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
 </head>
 <body>
-    <h1>Lirum Chrome LLMs Settings</h1>
-    
-    <div class="section">
-        <h2>AI Providers</h2>
-        <div>
-            <button id="add-provider" class="button">Add</button>
-            <button id="edit-provider" class="button" disabled>Edit Selected</button>
-            <button id="remove-provider" class="button" disabled>Remove</button>
+  <div class="app-container">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <nav class="nav-menu">
+        <ul>
+          <li class="nav-item">
+            <a href="#providers" class="nav-link active">
+              <i class="nav-icon fa-solid fa-microchip"></i>
+              <span>Providers</span>
+            </a>
+          </li>
+          <li class="nav-item">
+            <a href="#commands" class="nav-link">
+              <i class="nav-icon fa-solid fa-terminal"></i>
+              <span>Commands</span>
+            </a>
+          </li>
+          <li class="nav-item">
+            <a href="#settings" class="nav-link">
+              <i class="nav-icon fa-solid fa-gear"></i>
+              <span>Settings</span>
+            </a>
+          </li>
+        </ul>
+      </nav>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <!-- Providers Section -->
+      <section id="providers" class="content-section active">
+        <div class="section-header">
+          <h1>LLM Providers</h1>
+          <div class="header-actions">
+            <button id="add-provider" class="button primary">
+              <i class="fa-solid fa-brain"></i>
+              <span>Add Provider</span>
+            </button>
+          </div>
         </div>
-        <select id="providers-list" size="10"></select>
+
+        <div class="card">
+          <div class="providers-list-container">
+            <select id="providers-list" size="6" class="providers-list"></select>
+            <div class="provider-actions">
+              <button id="edit-provider" class="button secondary" disabled>
+                <i class="fa-solid fa-pen-to-square"></i>
+                Edit
+              </button>
+              <button id="remove-provider" class="button danger" disabled>
+                <i class="fa-solid fa-trash"></i>
+                Remove
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Commands Section -->
+      <section id="commands" class="content-section">
+        <div class="section-header">
+          <h1>Commands</h1>
+          <div class="header-actions">
+            <button id="add-command" class="button primary">Add Command</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="commands-list-container">
+            <select id="commands-list" size="6" class="commands-list"></select>
+            <div class="command-actions">
+              <button id="edit-command" class="button secondary" disabled>Edit</button>
+              <button id="remove-command" class="button danger" disabled>Remove</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Settings Section -->
+      <section id="settings" class="content-section">
+        <div class="section-header">
+          <h1>Settings</h1>
+          <div class="header-actions">
+            <button id="clear-logs" class="button danger">
+              <i class="fa-solid fa-trash"></i>
+              Clear Logs
+            </button>
+            <button id="export-logs" class="button secondary">
+              <i class="fa-solid fa-download"></i>
+              Export Logs
+            </button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="logs-container">
+            <div class="logs-header">
+              <h3>Console Logs</h3>
+              <div class="log-filters">
+                <label class="log-filter">
+                  <input type="checkbox" value="info" checked> Info
+                </label>
+                <label class="log-filter">
+                  <input type="checkbox" value="debug" checked> Debug
+                </label>
+                <label class="log-filter">
+                  <input type="checkbox" value="error" checked> Error
+                </label>
+                <label class="log-filter">
+                  <input type="checkbox" value="llm" checked> LLM
+                </label>
+              </div>
+            </div>
+            <div id="logs-output" class="logs-output"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Provider Modal -->
+  <div id="provider-modal" class="modal" style="display: none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div class="modal-header-content">
+          <i class="fa-solid fa-brain modal-icon"></i>
+          <h2>Add Provider</h2>
+        </div>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="provider-type">Type</label>
+          <select id="provider-type"></select>
+        </div>
+        <div class="form-group">
+          <label for="provider-name">Name</label>
+          <input type="text" id="provider-name" placeholder="Enter provider name">
+        </div>
+        <div class="form-group" id="api-key-group">
+          <label for="provider-apikey">API Key</label>
+          <input type="password" id="provider-apikey" placeholder="Enter API key">
+        </div>
+        <div class="form-group" id="endpoint-group" style="display: none;">
+          <label for="provider-endpoint">Endpoint</label>
+          <input type="text" id="provider-endpoint" placeholder="Enter endpoint URL">
+        </div>
+        <div class="form-group">
+          <label for="provider-model">Model</label>
+          <input type="text" 
+                 id="provider-model" 
+                 list="model-options" 
+                 placeholder="Select or type model name"
+                 autocomplete="off">
+          <datalist id="model-options"></datalist>
+        </div>
+        <div id="modal-message" class="message-container" style="display: none;"></div>
+      </div>
+      <div class="modal-footer">
+        <button id="test-provider" class="button secondary">
+          <span>Test Connection</span>
+          <div class="spinner"></div>
+        </button>
+        <button id="modal-save" class="button primary">
+          <span>Save</span>
+          <div class="spinner"></div>
+        </button>
+        <button id="modal-cancel" class="button">Cancel</button>
+      </div>
     </div>
+  </div>
 
-    <!-- Provider Modal -->
-    <div id="provider-modal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2>Add/Edit Provider</h2>
-                <span id="modal-close" class="close">&times;</span>
-            </div>
-            <div id="modal-message" class="message-container" style="display: none;"></div>
-            <div class="form-group">
-                <label for="provider-type">Type:</label>
-                <select id="provider-type" class="input-field">
-                    <option value="openai">OpenAI</option>
-                    <option value="anthropic">Anthropic</option>
-                    <option value="ollama">Ollama</option>
-                    <option value="deepseek">Deepseek</option>
-                    <option value="lmstudio">LM Studio</option>
-                </select>
-            </div>
-            <div class="form-group">
-                <label for="provider-name">Name:</label>
-                <input type="text" id="provider-name" class="input-field" placeholder="Provider name">
-            </div>
-            <div class="form-group">
-                <label for="provider-endpoint">Endpoint:</label>
-                <input type="text" id="provider-endpoint" class="input-field" placeholder="API endpoint URL">
-            </div>
-            <div class="form-group">
-                <label for="provider-apikey">API Key:</label>
-                <input type="password" id="provider-apikey" class="input-field" placeholder="Enter API key">
-            </div>
-            <div class="form-group">
-                <label for="provider-model">Model:</label>
-                <select id="provider-model" class="input-field">
-                    <!-- Models will be populated dynamically -->
-                </select>
-            </div>
-            <div>
-                <button id="test-provider" class="button button-with-spinner">
-                    <div class="spinner"></div>
-                    <span>Test Connection</span>
-                </button>
-                <button id="modal-save" class="button button-with-spinner">
-                    <div class="spinner"></div>
-                    <span>Save</span>
-                </button>
-            </div>
-        </div>
-    </div>
-
-    <div class="section">
-        <h2>Default Commands</h2>
-        <div id="commands-list">
-            <!-- Commands will be dynamically populated here -->
-        </div>
-        <button id="add-command" class="button">Add New Command</button>
-    </div>
-
-    <button id="save" class="button">Save Settings</button>
-
-    <div class="section">
-        <div class="section-header" id="logs-header">
-            <h2>Logs</h2>
-            <button class="button" id="clear-logs">Clear</button>
-            <button class="button" id="export-logs">Export</button>
-        </div>
-        <div id="logs-container" style="display: none;">
-            <div class="log-filters">
-                <label><input type="checkbox" checked data-level="info"> Info</label>
-                <label><input type="checkbox" checked data-level="debug"> Debug</label>
-                <label><input type="checkbox" checked data-level="error"> Error</label>
-                <label><input type="checkbox" checked data-level="llm"> LLM</label>
-            </div>
-            <pre id="logs-content"></pre>
-        </div>
-    </div>
-
-    <script src="options.js"></script>
+  <script src="options.js"></script>
 </body>
 </html> 

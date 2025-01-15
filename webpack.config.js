@@ -9,7 +9,7 @@ export default {
   mode: 'development',
   devtool: 'source-map',
   entry: {
-    options: './src/options/options.ts',
+    options: ['./src/options/options.ts', './src/styles/options.css'],
     popup: './src/popup/popup.tsx',
     background: './src/background/background.ts',
     content: './src/content/content.ts',
@@ -25,10 +25,14 @@ export default {
         use: 'ts-loader',
         exclude: /node_modules/,
       },
+      {
+        test: /\.css$/,
+        use: ['style-loader', 'css-loader']
+      }
     ],
   },
   resolve: {
-    extensions: ['.tsx', '.ts', '.js'],
+    extensions: ['.tsx', '.ts', '.js', '.css'],
   },
   plugins: [
     new CopyPlugin({
@@ -36,7 +40,7 @@ export default {
         { from: 'src/manifest.json', to: 'manifest.json' },
         { from: 'src/options/options.html', to: 'options/options.html' },
         { from: 'src/popup/popup.html', to: 'popup/popup.html' },
-        { from: 'src/assets', to: 'assets', noErrorOnMissing: true },
+        { from: 'src/assets', to: 'assets', noErrorOnMissing: true }
       ],
     }),
   ],

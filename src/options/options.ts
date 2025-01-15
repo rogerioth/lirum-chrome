@@ -5,6 +5,7 @@ import { OllamaProvider } from '../llm/OllamaProvider';
 import { DeepseekProvider } from '../llm/DeepseekProvider';
 import { LMStudioProvider } from '../llm/LMStudioProvider';
 import { Logger, LogLevel } from '../utils/Logger';
+import '../styles/options.css';
 
 interface LLMProvider {
     type: string;
@@ -30,6 +31,34 @@ const DEFAULT_COMMANDS: Command[] = [
     { name: 'Translate', description: 'Translate the content to another language' },
     { name: 'Analyze Tone', description: 'Analyze the tone of the content' }
 ];
+
+// Add navigation handling
+function initializeNavigation(): void {
+    const navLinks = document.querySelectorAll('.nav-link');
+    const sections = document.querySelectorAll('.content-section');
+
+    navLinks.forEach(link => {
+        link.addEventListener('click', (e) => {
+            e.preventDefault();
+            const targetId = (link as HTMLAnchorElement).getAttribute('href')?.substring(1);
+            
+            // Update active states
+            navLinks.forEach(l => l.classList.remove('active'));
+            link.classList.add('active');
+            
+            // Show target section
+            sections.forEach(section => {
+                if (section instanceof HTMLElement) {
+                    if (section.id === targetId) {
+                        section.classList.add('active');
+                    } else {
+                        section.classList.remove('active');
+                    }
+                }
+            });
+        });
+    });
+}
 
 class OptionsManager {
     private providers: LLMProvider[] = [];
@@ -109,7 +138,7 @@ class OptionsManager {
             provider.setModel(modelSelect.value);
             const response = await provider.complete('Hello!');
             
-            this.logger.info('Provider test successful', {
+            await this.logger.info('Provider test successful', {
                 type,
                 model: modelSelect.value,
                 response: response.content
@@ -118,7 +147,7 @@ class OptionsManager {
             this.showMessage(`Connection test successful!\nModel: ${modelSelect.value}\nResponse: ${response.content}`, false, true);
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : 'Test failed';
-            this.logger.error('Provider test failed', { error: errorMessage });
+            await this.logger.error('Provider test failed', { error: errorMessage });
             this.showMessage(errorMessage, true, true);
         } finally {
             this.setLoading(testButton, false);
@@ -141,45 +170,147 @@ class OptionsManager {
     }
 
     private initializeEventListeners(): void {
-        document.getElementById('save')?.addEventListener('click', () => this.saveSettings());
-        document.getElementById('add-command')?.addEventListener('click', () => this.addNewCommand());
-        document.getElementById('add-provider')?.addEventListener('click', () => {
-            this.logger.info('Opening add provider modal');
+        // Initialize navigation
+        initializeNavigation();
+
+        // Provider management
+        document.getElementById('add-provider')?.addEventListener('click', async () => {
+            await this.logger.info('Opening add provider modal');
             this.showProviderModal();
         });
-        document.getElementById('edit-provider')?.addEventListener('click', () => {
-            this.logger.info('Opening edit provider modal', { providerIndex: this.selectedProviderIndex });
+
+        document.getElementById('edit-provider')?.addEventListener('click', async () => {
+            await this.logger.info('Opening edit provider modal', { providerIndex: this.selectedProviderIndex });
             this.editSelectedProvider();
         });
-        document.getElementById('remove-provider')?.addEventListener('click', () => {
-            this.logger.info('Removing provider', { providerIndex: this.selectedProviderIndex });
+
+        document.getElementById('remove-provider')?.addEventListener('click', async () => {
+            await this.logger.info('Removing provider', { providerIndex: this.selectedProviderIndex });
             this.removeSelectedProvider();
         });
-        
-        // Modal event listeners
-        document.getElementById('modal-close')?.addEventListener('click', () => this.hideProviderModal());
-        document.getElementById('modal-save')?.addEventListener('click', () => this.saveProviderModal());
-        document.getElementById('test-provider')?.addEventListener('click', () => this.testProvider());
 
-        // Provider type change listener
-        const typeSelect = document.getElementById('provider-type') as HTMLSelectElement;
-        if (typeSelect) {
-            typeSelect.addEventListener('change', () => {
-                this.updateProviderName();
-                this.updateProviderFields();
-                this.updateModelsList();
-            });
-        }
-
-        // Provider selection listener
+        // Provider selection
         const providersList = document.getElementById('providers-list') as HTMLSelectElement;
         if (providersList) {
-            providersList.addEventListener('change', () => {
-                this.selectedProviderIndex = providersList.selectedIndex;
+            providersList.addEventListener('change', async () => {
+                this.selectedProviderIndex = parseInt(providersList.value);
+                await this.logger.debug('Provider selected', { index: this.selectedProviderIndex });
                 this.updateProviderButtons();
-                this.logger.debug('Provider selected', { index: this.selectedProviderIndex });
             });
         }
+
+        // Modal events
+        document.getElementById('modal-cancel')?.addEventListener('click', () => {
+            this.hideProviderModal();
+        });
+
+        document.getElementById('test-provider')?.addEventListener('click', () => {
+            this.testProvider();
+        });
+
+        document.getElementById('modal-save')?.addEventListener('click', () => {
+            this.saveProviderModal();
+        });
+
+        // Provider type change
+        const typeSelect = document.getElementById('provider-type');
+        const nameInput = document.getElementById('provider-name') as HTMLInputElement;
+        
+        typeSelect?.addEventListener('change', () => {
+            // Only update name if it's empty or matches a previous type
+            if (!nameInput.value || PROVIDER_TYPES.includes(nameInput.value as ProviderType)) {
+                nameInput.value = (typeSelect as HTMLSelectElement).value;
+            }
+            this.updateProviderFields();
+            this.updateModelsList();
+        });
+
+        // Logs management
+        document.getElementById('clear-logs')?.addEventListener('click', async () => {
+            await this.logger.info('Clearing logs');
+            await this.clearLogs();
+        });
+
+        document.getElementById('export-logs')?.addEventListener('click', async () => {
+            await this.logger.info('Exporting logs');
+            await this.exportLogs();
+        });
+
+        // Log filters
+        const logFilters = document.querySelectorAll('.log-filter input');
+        logFilters.forEach(filter => {
+            filter.addEventListener('change', () => {
+                this.updateLogFilters();
+            });
+        });
+
+        // Initialize logs display
+        this.initializeLogs();
+    }
+
+    private async initializeLogs(): Promise<void> {
+        await this.displayLogs();
+        
+        // Set up periodic refresh
+        setInterval(async () => {
+            await this.displayLogs();
+        }, 2000); // Refresh every 2 seconds
+    }
+
+    private async displayLogs(): Promise<void> {
+        const logsOutput = document.getElementById('logs-output');
+        if (!logsOutput) return;
+
+        const logsJson = await this.logger.exportLogs();
+        const logs = JSON.parse(logsJson);
+        const activeFilters = this.getActiveLogFilters();
+
+        const filteredLogs = logs.filter(log => activeFilters.includes(log.level));
+        
+        logsOutput.innerHTML = filteredLogs.map(log => {
+            const timestamp = new Date(log.timestamp).toLocaleTimeString();
+            const details = log.details ? `\n${JSON.stringify(log.details, null, 2)}` : '';
+            
+            return `<div class="log-entry ${log.level}">
+                <span class="log-timestamp">[${timestamp}]</span>
+                <span class="log-level">[${log.level.toUpperCase()}]</span>
+                <span class="log-message">${log.message}${details}</span>
+            </div>`;
+        }).join('');
+
+        // Scroll to bottom if already at bottom
+        if (logsOutput.scrollHeight - logsOutput.scrollTop === logsOutput.clientHeight) {
+            logsOutput.scrollTop = logsOutput.scrollHeight;
+        }
+    }
+
+    private getActiveLogFilters(): LogLevel[] {
+        const filters = document.querySelectorAll('.log-filter input:checked');
+        return Array.from(filters).map(filter => (filter as HTMLInputElement).value as LogLevel);
+    }
+
+    private updateLogFilters(): void {
+        this.displayLogs();
+    }
+
+    private async clearLogs(): Promise<void> {
+        // Clear logs by setting an empty array
+        await chrome.storage.local.set({ logs: [] });
+        await this.displayLogs();
+    }
+
+    private async exportLogs(): Promise<void> {
+        const logsJson = await this.logger.exportLogs();
+        const blob = new Blob([logsJson], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `lirum-logs-${new Date().toISOString()}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
     }
 
     private async loadSettings(): Promise<void> {
@@ -188,18 +319,18 @@ class OptionsManager {
             
             if (settings.providers) {
                 this.providers = settings.providers;
-                this.logger.info('Providers loaded', { count: this.providers.length });
+                await this.logger.info('Providers loaded', { count: this.providers.length });
             }
 
             if (settings.commands) {
                 this.commands = settings.commands;
-                this.logger.info('Commands loaded', { count: this.commands.length });
+                await this.logger.info('Commands loaded', { count: this.commands.length });
             }
             
             this.renderProviders();
             this.renderCommands();
         } catch (error) {
-            this.logger.error('Failed to load settings', { error });
+            await this.logger.error('Failed to load settings', { error });
         }
     }
 
@@ -246,10 +377,10 @@ class OptionsManager {
 
             if (this.selectedProviderIndex !== -1) {
                 this.providers[this.selectedProviderIndex] = provider;
-                this.logger.info('Provider updated', { name: provider.name, type: provider.type });
+                await this.logger.info('Provider updated', { name: provider.name, type: provider.type });
             } else {
                 this.providers.push(provider);
-                this.logger.info('New provider added', { name: provider.name, type: provider.type });
+                await this.logger.info('New provider added', { name: provider.name, type: provider.type });
             }
 
             await this.saveSettings();
@@ -257,8 +388,8 @@ class OptionsManager {
             this.hideProviderModal();
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : 'Failed to save provider';
-            this.showMessage(errorMessage, true, true);
-            this.logger.error('Failed to save provider', { error });
+            this.showMessage(errorMessage, true);
+            await this.logger.error('Failed to save provider', { error });
         } finally {
             this.setLoading(saveButton, false);
         }
@@ -272,7 +403,7 @@ class OptionsManager {
         this.providers.forEach((provider, index) => {
             const option = document.createElement('option');
             option.value = index.toString();
-            option.textContent = `${provider.name} (${provider.type})`;
+            option.textContent = `  ${provider.name} (${provider.type})`;
             providersList.appendChild(option);
         });
 
@@ -294,41 +425,55 @@ class OptionsManager {
         const modal = document.getElementById('provider-modal');
         if (!modal) return;
 
-        const typeSelect = document.getElementById('provider-type') as HTMLSelectElement;
+        // Reset form
         const nameInput = document.getElementById('provider-name') as HTMLInputElement;
-        const endpointInput = document.getElementById('provider-endpoint') as HTMLInputElement;
+        const typeSelect = document.getElementById('provider-type') as HTMLSelectElement;
         const apiKeyInput = document.getElementById('provider-apikey') as HTMLInputElement;
-        const modelSelect = document.getElementById('provider-model') as HTMLSelectElement;
-
+        const endpointInput = document.getElementById('provider-endpoint') as HTMLInputElement;
+        const modelInput = document.getElementById('provider-model') as HTMLInputElement;
+        
+        // Populate provider types with correct capitalization
+        typeSelect.innerHTML = '';
+        const providerNames = {
+            'openai': 'OpenAI',
+            'anthropic': 'Anthropic',
+            'ollama': 'Ollama',
+            'deepseek': 'Deepseek',
+            'lmstudio': 'LMStudio'
+        };
+        
+        PROVIDER_TYPES.forEach(type => {
+            const option = document.createElement('option');
+            option.value = type;
+            option.textContent = providerNames[type];
+            typeSelect.appendChild(option);
+        });
+        
         if (provider) {
-            typeSelect.value = provider.type;
             nameInput.value = provider.name;
-            endpointInput.value = provider.endpoint || '';
+            typeSelect.value = provider.type;
             apiKeyInput.value = provider.apiKey || '';
-            
-            // Update available models and select the saved model
-            this.updateModelsList();
-            modelSelect.value = provider.model;
+            endpointInput.value = provider.endpoint || '';
+            modelInput.value = provider.model || '';
         } else {
+            nameInput.value = '';
             typeSelect.value = PROVIDER_TYPES[0];
-            nameInput.value = PROVIDER_TYPES[0];
-            endpointInput.value = '';
             apiKeyInput.value = '';
-            
-            // Initialize models list with default selection
-            this.updateModelsList();
+            endpointInput.value = '';
+            modelInput.value = '';
         }
-
+        
         this.updateProviderFields();
-        modal.style.display = 'block';
+        this.updateModelsList();
+        modal.style.display = 'flex';
     }
 
     private hideProviderModal(): void {
         const modal = document.getElementById('provider-modal');
+        if (!modal) return;
+
+        modal.style.display = 'none';
         const messageContainer = document.getElementById('modal-message');
-        if (modal) {
-            modal.style.display = 'none';
-        }
         if (messageContainer) {
             messageContainer.style.display = 'none';
         }
@@ -435,58 +580,80 @@ class OptionsManager {
 
     private updateProviderFields(): void {
         const typeSelect = document.getElementById('provider-type') as HTMLSelectElement;
-        const endpointInput = document.getElementById('provider-endpoint') as HTMLInputElement;
-        const apiKeyInput = document.getElementById('provider-apikey') as HTMLInputElement;
+        const apiKeyGroup = document.getElementById('api-key-group');
+        const endpointGroup = document.getElementById('endpoint-group');
         
         const type = typeSelect.value as ProviderType;
         const isLocal = this.isLocalProvider(type);
+        const provider = this.getProviderInstance(type);
         
-        if (isLocal) {
-            endpointInput.parentElement!.style.display = 'block';
-            apiKeyInput.parentElement!.style.display = 'none';
-            endpointInput.value = this.getProviderInstance(type).defaultEndpoint || '';
-            apiKeyInput.value = '';
-        } else {
-            endpointInput.parentElement!.style.display = 'none';
-            apiKeyInput.parentElement!.style.display = 'block';
+        // Show/hide API key field based on provider type
+        if (apiKeyGroup) {
+            apiKeyGroup.style.display = isLocal ? 'none' : 'block';
+        }
+        
+        // Always show endpoint field and set default values
+        if (endpointGroup) {
+            endpointGroup.style.display = 'block';
+            const endpointInput = document.getElementById('provider-endpoint') as HTMLInputElement;
+            
+            // Clear the current value and set the new default
             endpointInput.value = '';
+            if (provider.defaultEndpoint) {
+                endpointInput.value = provider.defaultEndpoint;
+            }
+            
+            // Set appropriate placeholder text
+            if (isLocal) {
+                endpointInput.placeholder = 'Enter endpoint URL (e.g., http://localhost:11434)';
+                if (type === 'ollama') {
+                    endpointInput.value = 'http://localhost:11434';
+                } else if (type === 'lmstudio') {
+                    endpointInput.value = 'http://localhost:1234';
+                }
+            } else if (type === 'openai') {
+                endpointInput.placeholder = 'Enter endpoint URL (optional, defaults to api.openai.com)';
+                endpointInput.value = 'https://api.openai.com/v1';
+            } else if (type === 'anthropic') {
+                endpointInput.placeholder = 'Enter endpoint URL (optional, defaults to api.anthropic.com)';
+                endpointInput.value = 'https://api.anthropic.com';
+            } else {
+                endpointInput.placeholder = 'Enter endpoint URL';
+            }
         }
     }
 
     private updateModelsList(): void {
         const typeSelect = document.getElementById('provider-type') as HTMLSelectElement;
-        const modelSelect = document.getElementById('provider-model') as HTMLSelectElement;
+        const modelInput = document.getElementById('provider-model') as HTMLInputElement;
+        const modelDatalist = document.getElementById('model-options') as HTMLDataListElement;
         
-        if (!modelSelect) return;
+        if (!modelInput || !modelDatalist) return;
 
         const type = typeSelect.value as ProviderType;
         const provider = this.getProviderInstance(type);
         const models = provider.availableModels;
         const defaultModel = provider.defaultModel;
 
-        modelSelect.innerHTML = '';
+        // Clear and populate the datalist
+        modelDatalist.innerHTML = '';
         models.forEach(model => {
             const option = document.createElement('option');
             option.value = model;
-            option.textContent = model;
-            modelSelect.appendChild(option);
+            modelDatalist.appendChild(option);
         });
 
-        modelSelect.value = defaultModel;
+        // Set default value if empty
+        if (!modelInput.value) {
+            modelInput.value = defaultModel;
+        }
     }
 
     private setLoading(button: HTMLButtonElement, loading: boolean): void {
-        const spinner = button.querySelector('.spinner') as HTMLElement;
-        const text = button.querySelector('span') as HTMLElement;
-        
-        if (loading) {
-            spinner.style.display = 'inline-block';
-            button.disabled = true;
-            text.style.opacity = '0.7';
-        } else {
-            spinner.style.display = 'none';
-            button.disabled = false;
-            text.style.opacity = '1';
+        const spinner = button.querySelector('.spinner');
+        if (spinner) {
+            button.classList.toggle('loading', loading);
+            button.disabled = loading;
         }
     }
 }
