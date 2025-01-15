@@ -79,6 +79,40 @@ Lirum Chrome LLMs is a Google Chrome extension designed to seamlessly integrate 
     - Use chrome.storage.sync or chrome.storage.local for credential storage.
     - Potentially leverage encryption libraries to store sensitive API keys if feasible.
 
+4.6. Logging System
+    - A singleton Logger class that provides extension-wide logging capabilities:
+      • Log levels: info, debug, error, and llm (for LLM-specific operations)
+      • Timestamp and optional details with each log entry
+      • Maximum of 1000 entries with automatic rotation
+      • Persistent storage in chrome.storage.local
+      • Real-time log updates through listener pattern
+
+    - Options page integration:
+      • Collapsible logging section with monospaced font display
+      • Color-coded log levels for better readability:
+        - Info: Light blue (#89d1f5)
+        - Debug: Light green (#b5cea8)
+        - Error: Red (#f48771)
+        - LLM: Purple (#c586c0)
+      • Log filtering by level through checkboxes
+      • Clear and Export functionality
+      • Dark theme log display with auto-scrolling
+      • JSON export with timestamp in filename
+
+    - Log entry format:
+      ```
+      [TIME] [LEVEL] Message {Optional JSON details}
+      ```
+
+    - Usage across extension:
+      ```typescript
+      const logger = Logger.getInstance();
+      logger.info('Message');
+      logger.debug('Message', { details: 'value' });
+      logger.error('Error occurred', { error: errorObj });
+      logger.llm('Prompt sent', { prompt: 'text', model: 'gpt-4' });
+      ```
+
 5. Scripts for Development and Deployment
 -----------------------------------------
 Provide shell scripts/batch files for each major platform—Windows, macOS (Darwin), and Linux. These scripts should streamline setup, testing, and deployment of the extension.

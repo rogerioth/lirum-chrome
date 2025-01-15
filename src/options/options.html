@@ -10,60 +10,215 @@
             padding: 20px;
             font-family: Arial, sans-serif;
         }
-        .provider-section {
+        .section {
             margin-bottom: 20px;
             padding: 15px;
             border: 1px solid #ccc;
             border-radius: 5px;
         }
-        .api-key-input {
+        .input-field {
             width: 100%;
             padding: 8px;
             margin: 5px 0;
+            border: 1px solid #ccc;
+            border-radius: 4px;
         }
-        .save-button {
+        .button {
             background-color: #4CAF50;
             color: white;
             padding: 10px 20px;
             border: none;
             border-radius: 4px;
             cursor: pointer;
+            margin-right: 5px;
         }
-        .save-button:hover {
+        .button:hover {
             background-color: #45a049;
         }
+        .button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        #providers-list {
+            width: 100%;
+            height: 200px;
+            margin: 10px 0;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+        }
+        .modal-content {
+            background-color: white;
+            margin: 15% auto;
+            padding: 20px;
+            border-radius: 5px;
+            width: 80%;
+            max-width: 500px;
+        }
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        .close {
+            color: #aaa;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        .close:hover {
+            color: black;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+        }
+        .message-container {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            text-align: center;
+        }
+        .message-container.error {
+            background-color: #ffebee;
+            color: #c62828;
+        }
+        .message-container.success {
+            background-color: #e8f5e9;
+            color: #2e7d32;
+        }
+        .section-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            cursor: pointer;
+        }
+        .section-header h2 {
+            margin: 0;
+            flex-grow: 1;
+        }
+        #logs-container {
+            margin-top: 10px;
+        }
+        .log-filters {
+            margin-bottom: 10px;
+            padding: 5px;
+            background: #f5f5f5;
+            border-radius: 4px;
+        }
+        .log-filters label {
+            margin-right: 15px;
+            cursor: pointer;
+        }
+        #logs-content {
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            font-size: 12px;
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 10px;
+            border-radius: 4px;
+            max-height: 400px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            margin: 0;
+        }
+        .log-entry {
+            margin: 2px 0;
+            padding: 2px 0;
+        }
+        .log-entry.info { color: #89d1f5; }
+        .log-entry.debug { color: #b5cea8; }
+        .log-entry.error { color: #f48771; }
+        .log-entry.llm { color: #c586c0; }
     </style>
 </head>
 <body>
     <h1>Lirum Chrome LLMs Settings</h1>
     
-    <div class="provider-section">
-        <h2>OpenAI</h2>
-        <label for="openai-key">API Key:</label>
-        <input type="password" id="openai-key" class="api-key-input" placeholder="Enter your OpenAI API key">
+    <div class="section">
+        <h2>AI Providers</h2>
+        <div>
+            <button id="add-provider" class="button">Add</button>
+            <button id="edit-provider" class="button" disabled>Edit Selected</button>
+            <button id="remove-provider" class="button" disabled>Remove</button>
+        </div>
+        <select id="providers-list" size="10"></select>
     </div>
 
-    <div class="provider-section">
-        <h2>Anthropic</h2>
-        <label for="anthropic-key">API Key:</label>
-        <input type="password" id="anthropic-key" class="api-key-input" placeholder="Enter your Anthropic API key">
+    <!-- Provider Modal -->
+    <div id="provider-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Add/Edit Provider</h2>
+                <span id="modal-close" class="close">&times;</span>
+            </div>
+            <div id="modal-message" class="message-container" style="display: none;"></div>
+            <div class="form-group">
+                <label for="provider-type">Type:</label>
+                <select id="provider-type" class="input-field">
+                    <option value="openai">OpenAI</option>
+                    <option value="anthropic">Anthropic</option>
+                    <option value="ollama">Ollama</option>
+                    <option value="deepseek">Deepseek</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="provider-name">Name:</label>
+                <input type="text" id="provider-name" class="input-field" placeholder="Provider name">
+            </div>
+            <div class="form-group">
+                <label for="provider-endpoint">Endpoint:</label>
+                <input type="text" id="provider-endpoint" class="input-field" placeholder="API endpoint URL">
+            </div>
+            <div class="form-group">
+                <label for="provider-apikey">API Key:</label>
+                <input type="password" id="provider-apikey" class="input-field" placeholder="Enter API key">
+            </div>
+            <div>
+                <button id="test-provider" class="button">Test Connection</button>
+                <button id="modal-save" class="button">Save</button>
+            </div>
+        </div>
     </div>
 
-    <div class="provider-section">
-        <h2>Deepseek</h2>
-        <label for="deepseek-key">API Key:</label>
-        <input type="password" id="deepseek-key" class="api-key-input" placeholder="Enter your Deepseek API key">
-    </div>
-
-    <div class="provider-section">
+    <div class="section">
         <h2>Default Commands</h2>
         <div id="commands-list">
             <!-- Commands will be dynamically populated here -->
         </div>
-        <button id="add-command" class="save-button">Add New Command</button>
+        <button id="add-command" class="button">Add New Command</button>
     </div>
 
-    <button id="save" class="save-button">Save Settings</button>
+    <button id="save" class="button">Save Settings</button>
+
+    <div class="section">
+        <div class="section-header" id="logs-header">
+            <h2>Logs</h2>
+            <button class="button" id="clear-logs">Clear</button>
+            <button class="button" id="export-logs">Export</button>
+        </div>
+        <div id="logs-container" style="display: none;">
+            <div class="log-filters">
+                <label><input type="checkbox" checked data-level="info"> Info</label>
+                <label><input type="checkbox" checked data-level="debug"> Debug</label>
+                <label><input type="checkbox" checked data-level="error"> Error</label>
+                <label><input type="checkbox" checked data-level="llm"> LLM</label>
+            </div>
+            <pre id="logs-content"></pre>
+        </div>
+    </div>
 
     <script src="options.js"></script>
 </body>
