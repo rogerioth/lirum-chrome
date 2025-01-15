@@ -15,6 +15,7 @@ export class OpenAIProvider implements LLMProvider {
   private currentModel: string;
   private readonly logger: Logger;
   private readonly API_URL = 'https://api.openai.com/v1/chat/completions';
+  private readonly API_KEY_PATTERN = /^.{5,}$/;
 
   constructor() {
     this.currentModel = this.defaultModel;
@@ -23,15 +24,35 @@ export class OpenAIProvider implements LLMProvider {
 
   async initialize(apiKey: string): Promise<void> {
     if (!this.validateApiKey(apiKey)) {
-      throw new Error('Invalid OpenAI API key format');
+      throw new Error('Invalid API key format. Key should be at least 5 characters long.');
     }
-    this.apiKey = apiKey;
-    await this.logger.info('OpenAI provider initialized');
+
+    // Test the API key with a simple models list request
+    try {
+      const response = await fetch('https://api.openai.com/v1/models', {
+        headers: {
+          'Authorization': `Bearer ${apiKey}`
+        }
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error?.message || 'Failed to validate API key');
+      }
+
+      this.apiKey = apiKey;
+      await this.logger.info('OpenAI provider initialized');
+    } catch (error) {
+      if (error instanceof Error) {
+        throw new Error(`OpenAI API key validation failed: ${error.message}`);
+      }
+      throw error;
+    }
   }
 
   async complete(prompt: string, options: LLMOptions = {}): Promise<LLMResponse> {
     if (!this.isInitialized()) {
-      throw new Error('OpenAI provider not initialized');
+      throw new Error('OpenAI provider not initialized. Please provide a valid API key.');
     }
 
     const requestBody = {
@@ -61,6 +82,11 @@ export class OpenAIProvider implements LLMProvider {
       }
 
       const data = await response.json();
+      
+      if (!data.choices?.[0]?.message?.content) {
+        throw new Error('Invalid response format from OpenAI API');
+      }
+
       await this.logger.llm('OpenAI completion successful', {
         model: this.currentModel,
         usage: data.usage
@@ -98,6 +124,6 @@ export class OpenAIProvider implements LLMProvider {
   }
 
   validateApiKey(apiKey: string): boolean {
-    return apiKey.startsWith('sk-') && apiKey.length > 20;
+    return this.API_KEY_PATTERN.test(apiKey);
   }
 } 

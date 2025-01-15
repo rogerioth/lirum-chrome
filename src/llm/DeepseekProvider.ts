@@ -4,16 +4,13 @@ import { Logger } from '../utils/Logger';
 export class DeepseekProvider implements LLMProvider {
   name = 'Deepseek';
   defaultModel = 'deepseek-chat';
-  availableModels = [
-    'deepseek-chat',
-    'deepseek-coder',
-    'deepseek-math'
-  ];
+  availableModels = ['deepseek-chat', 'deepseek-coder'];
 
   private apiKey: string | null = null;
   private currentModel: string;
   private readonly logger: Logger;
   private readonly API_URL = 'https://api.deepseek.com/v1/chat/completions';
+  private readonly API_KEY_PATTERN = /^.{5,}$/;
 
   constructor() {
     this.currentModel = this.defaultModel;
@@ -22,25 +19,43 @@ export class DeepseekProvider implements LLMProvider {
 
   async initialize(apiKey: string): Promise<void> {
     if (!this.validateApiKey(apiKey)) {
-      throw new Error('Invalid Deepseek API key format');
+      throw new Error('Invalid API key format. Key should be at least 5 characters long.');
     }
-    this.apiKey = apiKey;
-    await this.logger.info('Deepseek provider initialized');
+
+    // Test the API key with a simple models list request
+    try {
+      const response = await fetch('https://api.deepseek.com/v1/models', {
+        headers: {
+          'Authorization': `Bearer ${apiKey}`
+        }
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error?.message || 'Failed to validate API key');
+      }
+
+      this.apiKey = apiKey;
+      await this.logger.info('Deepseek provider initialized');
+    } catch (error) {
+      if (error instanceof Error) {
+        throw new Error(`Deepseek API key validation failed: ${error.message}`);
+      }
+      throw error;
+    }
   }
 
   async complete(prompt: string, options: LLMOptions = {}): Promise<LLMResponse> {
     if (!this.isInitialized()) {
-      throw new Error('Deepseek provider not initialized');
+      throw new Error('Deepseek provider not initialized. Please provide a valid API key.');
     }
 
     const requestBody = {
       model: this.currentModel,
       messages: [{ role: 'user', content: prompt }],
-      temperature: options.temperature ?? 0.7,
       max_tokens: options.maxTokens,
+      temperature: options.temperature ?? 0.7,
       top_p: options.topP ?? 1,
-      frequency_penalty: options.frequencyPenalty ?? 0,
-      presence_penalty: options.presencePenalty ?? 0,
       stop: options.stop
     };
 
@@ -60,6 +75,11 @@ export class DeepseekProvider implements LLMProvider {
       }
 
       const data = await response.json();
+      
+      if (!data.choices?.[0]?.message?.content) {
+        throw new Error('Invalid response format from Deepseek API');
+      }
+
       await this.logger.llm('Deepseek completion successful', {
         model: this.currentModel,
         usage: data.usage
@@ -69,9 +89,9 @@ export class DeepseekProvider implements LLMProvider {
         content: data.choices[0].message.content,
         model: this.currentModel,
         usage: {
-          promptTokens: data.usage.prompt_tokens,
-          completionTokens: data.usage.completion_tokens,
-          totalTokens: data.usage.total_tokens
+          promptTokens: data.usage?.prompt_tokens ?? 0,
+          completionTokens: data.usage?.completion_tokens ?? 0,
+          totalTokens: data.usage?.total_tokens ?? 0
         },
         raw: data
       };
@@ -97,6 +117,6 @@ export class DeepseekProvider implements LLMProvider {
   }
 
   validateApiKey(apiKey: string): boolean {
-    return apiKey.startsWith('sk-') && apiKey.length > 20;
+    return this.API_KEY_PATTERN.test(apiKey);
   }
 } 

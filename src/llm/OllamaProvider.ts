@@ -6,51 +6,64 @@ export class OllamaProvider implements LLMProvider {
   defaultModel = 'llama2';
   availableModels = [
     'llama2',
-    'mistral',
     'codellama',
+    'mistral',
+    'mixtral',
     'phi',
     'neural-chat',
     'starling-lm'
   ];
+  defaultEndpoint = 'http://localhost:11434';
 
+  private endpoint: string | null = null;
   private currentModel: string;
   private readonly logger: Logger;
-  private baseUrl: string | null = null;
-  private readonly DEFAULT_PORT = 11434;
+  private readonly ENDPOINT_PATTERN = /^https?:\/\/[^\s/$.?#].[^\s]*$/i;
 
   constructor() {
     this.currentModel = this.defaultModel;
     this.logger = Logger.getInstance();
   }
 
-  async initialize(baseUrl: string): Promise<void> {
-    if (!this.validateApiKey(baseUrl)) {
-      throw new Error('Invalid Ollama base URL format');
+  async initialize(endpoint: string = this.defaultEndpoint): Promise<void> {
+    if (!this.validateEndpoint(endpoint)) {
+      throw new Error('Invalid endpoint URL format. Please provide a valid HTTP/HTTPS URL.');
     }
-    this.baseUrl = baseUrl;
-    
-    // Test connection
+
+    // Test the endpoint with a simple health check
     try {
-      const response = await fetch(`${this.baseUrl}/api/tags`);
+      const response = await fetch(`${endpoint}/api/tags`, {
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+
       if (!response.ok) {
-        throw new Error('Failed to connect to Ollama server');
+        const error = await response.json();
+        throw new Error(error.error?.message || 'Failed to validate endpoint');
       }
+
+      this.endpoint = endpoint;
       await this.logger.info('Ollama provider initialized');
     } catch (error) {
-      await this.logger.error('Ollama initialization failed', { error });
-      throw new Error('Failed to connect to Ollama server');
+      if (error instanceof Error) {
+        throw new Error(`Ollama endpoint validation failed: ${error.message}`);
+      }
+      throw error;
     }
   }
 
   async complete(prompt: string, options: LLMOptions = {}): Promise<LLMResponse> {
     if (!this.isInitialized()) {
-      throw new Error('Ollama provider not initialized');
+      throw new Error('Ollama provider not initialized. Please provide a valid endpoint.');
     }
 
     const requestBody = {
       model: this.currentModel,
-      prompt,
+      messages: [{ role: 'user', content: prompt }],
+      stream: false,
       options: {
+        num_predict: options.maxTokens,
         temperature: options.temperature ?? 0.7,
         top_p: options.topP ?? 1,
         stop: options.stop
@@ -58,7 +71,7 @@ export class OllamaProvider implements LLMProvider {
     };
 
     try {
-      const response = await fetch(`${this.baseUrl}/api/generate`, {
+      const response = await fetch(`${this.endpoint}/api/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -68,18 +81,28 @@ export class OllamaProvider implements LLMProvider {
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.error || 'Ollama API request failed');
+        throw new Error(error.error?.message || 'Ollama API request failed');
       }
 
       const data = await response.json();
+      
+      if (!data.message?.content) {
+        throw new Error('Invalid response format from Ollama API');
+      }
+
       await this.logger.llm('Ollama completion successful', {
-        model: this.currentModel
+        model: this.currentModel,
+        usage: data.timings
       });
 
-      // Ollama doesn't provide token usage information
       return {
-        content: data.response,
+        content: data.message.content,
         model: this.currentModel,
+        usage: {
+          promptTokens: data.timings?.prompt_tokens ?? 0,
+          completionTokens: data.timings?.completion_tokens ?? 0,
+          totalTokens: (data.timings?.prompt_tokens ?? 0) + (data.timings?.completion_tokens ?? 0)
+        },
         raw: data
       };
     } catch (error) {
@@ -88,28 +111,8 @@ export class OllamaProvider implements LLMProvider {
     }
   }
 
-  async listAvailableModels(): Promise<string[]> {
-    if (!this.isInitialized()) {
-      throw new Error('Ollama provider not initialized');
-    }
-
-    try {
-      const response = await fetch(`${this.baseUrl}/api/tags`);
-      if (!response.ok) {
-        throw new Error('Failed to fetch available models');
-      }
-
-      const data = await response.json();
-      this.availableModels = data.models.map((model: any) => model.name);
-      return this.availableModels;
-    } catch (error) {
-      await this.logger.error('Failed to fetch Ollama models', { error });
-      throw error;
-    }
-  }
-
   isInitialized(): boolean {
-    return this.baseUrl !== null;
+    return this.endpoint !== null;
   }
 
   getCurrentModel(): string {
@@ -123,16 +126,11 @@ export class OllamaProvider implements LLMProvider {
     this.currentModel = model;
   }
 
-  validateApiKey(baseUrl: string): boolean {
-    try {
-      const url = new URL(baseUrl);
-      return url.protocol === 'http:' || url.protocol === 'https:';
-    } catch {
-      return false;
-    }
+  validateEndpoint(endpoint: string): boolean {
+    return this.ENDPOINT_PATTERN.test(endpoint);
   }
 
-  static getDefaultBaseUrl(): string {
-    return `http://localhost:${OllamaProvider.prototype.DEFAULT_PORT}`;
+  validateApiKey(apiKey: string): boolean {
+    return true; // Not used for local providers
   }
 } 

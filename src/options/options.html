@@ -142,6 +142,26 @@
         .log-entry.debug { color: #b5cea8; }
         .log-entry.error { color: #f48771; }
         .log-entry.llm { color: #c586c0; }
+        .spinner {
+            display: none;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3498db;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .button-with-spinner {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
     </style>
 </head>
 <body>
@@ -172,6 +192,7 @@
                     <option value="anthropic">Anthropic</option>
                     <option value="ollama">Ollama</option>
                     <option value="deepseek">Deepseek</option>
+                    <option value="lmstudio">LM Studio</option>
                 </select>
             </div>
             <div class="form-group">
@@ -186,9 +207,21 @@
                 <label for="provider-apikey">API Key:</label>
                 <input type="password" id="provider-apikey" class="input-field" placeholder="Enter API key">
             </div>
+            <div class="form-group">
+                <label for="provider-model">Model:</label>
+                <select id="provider-model" class="input-field">
+                    <!-- Models will be populated dynamically -->
+                </select>
+            </div>
             <div>
-                <button id="test-provider" class="button">Test Connection</button>
-                <button id="modal-save" class="button">Save</button>
+                <button id="test-provider" class="button button-with-spinner">
+                    <div class="spinner"></div>
+                    <span>Test Connection</span>
+                </button>
+                <button id="modal-save" class="button button-with-spinner">
+                    <div class="spinner"></div>
+                    <span>Save</span>
+                </button>
             </div>
         </div>
     </div>

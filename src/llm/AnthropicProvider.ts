@@ -18,6 +18,7 @@ export class AnthropicProvider implements LLMProvider {
   private readonly logger: Logger;
   private readonly API_URL = 'https://api.anthropic.com/v1/messages';
   private readonly API_VERSION = '2023-06-01';
+  private readonly API_KEY_PATTERN = /^.{5,}$/;
 
   constructor() {
     this.currentModel = this.defaultModel;
@@ -26,15 +27,36 @@ export class AnthropicProvider implements LLMProvider {
 
   async initialize(apiKey: string): Promise<void> {
     if (!this.validateApiKey(apiKey)) {
-      throw new Error('Invalid Anthropic API key format');
+      throw new Error('Invalid API key format. Key should be at least 5 characters long.');
     }
-    this.apiKey = apiKey;
-    await this.logger.info('Anthropic provider initialized');
+
+    // Test the API key with a simple models list request
+    try {
+      const response = await fetch('https://api.anthropic.com/v1/models', {
+        headers: {
+          'x-api-key': apiKey,
+          'anthropic-version': this.API_VERSION
+        }
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error?.message || 'Failed to validate API key');
+      }
+
+      this.apiKey = apiKey;
+      await this.logger.info('Anthropic provider initialized');
+    } catch (error) {
+      if (error instanceof Error) {
+        throw new Error(`Anthropic API key validation failed: ${error.message}`);
+      }
+      throw error;
+    }
   }
 
   async complete(prompt: string, options: LLMOptions = {}): Promise<LLMResponse> {
     if (!this.isInitialized()) {
-      throw new Error('Anthropic provider not initialized');
+      throw new Error('Anthropic provider not initialized. Please provide a valid API key.');
     }
 
     const requestBody = {
@@ -51,7 +73,7 @@ export class AnthropicProvider implements LLMProvider {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-API-Key': this.apiKey!,
+          'x-api-key': this.apiKey!,
           'anthropic-version': this.API_VERSION
         },
         body: JSON.stringify(requestBody)
@@ -63,6 +85,11 @@ export class AnthropicProvider implements LLMProvider {
       }
 
       const data = await response.json();
+      
+      if (!data.content?.[0]?.text) {
+        throw new Error('Invalid response format from Anthropic API');
+      }
+
       await this.logger.llm('Anthropic completion successful', {
         model: this.currentModel,
         usage: data.usage
@@ -100,6 +127,6 @@ export class AnthropicProvider implements LLMProvider {
   }
 
   validateApiKey(apiKey: string): boolean {
-    return apiKey.startsWith('sk-ant-') && apiKey.length > 25;
+    return this.API_KEY_PATTERN.test(apiKey);
   }
 } 

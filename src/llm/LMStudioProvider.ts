@@ -3,61 +3,64 @@ import { Logger } from '../utils/Logger';
 
 export class LMStudioProvider implements LLMProvider {
   name = 'LM Studio';
-  defaultModel = 'local-model';  // LM Studio uses locally loaded models
-  availableModels: string[] = [];  // Will be populated when a model is loaded
+  defaultModel = 'local-model';
+  availableModels = ['local-model'];
+  defaultEndpoint = 'http://localhost:1234/v1';
 
+  private endpoint: string | null = null;
   private currentModel: string;
   private readonly logger: Logger;
-  private baseUrl: string | null = null;
-  private readonly DEFAULT_PORT = 1234;
+  private readonly ENDPOINT_PATTERN = /^https?:\/\/[^\s/$.?#].[^\s]*$/i;
 
   constructor() {
     this.currentModel = this.defaultModel;
     this.logger = Logger.getInstance();
   }
 
-  async initialize(baseUrl: string): Promise<void> {
-    if (!this.validateApiKey(baseUrl)) {
-      throw new Error('Invalid LM Studio base URL format');
+  async initialize(endpoint: string = this.defaultEndpoint): Promise<void> {
+    if (!this.validateEndpoint(endpoint)) {
+      throw new Error('Invalid endpoint URL format. Please provide a valid HTTP/HTTPS URL.');
     }
-    this.baseUrl = baseUrl;
-    
-    // Test connection
+
+    // Test the endpoint with a simple health check
     try {
-      const response = await fetch(`${this.baseUrl}/v1/models`);
-      if (!response.ok) {
-        throw new Error('Failed to connect to LM Studio server');
-      }
-      const data = await response.json();
-      this.availableModels = data.data.map((model: any) => model.id);
-      
-      await this.logger.info('LM Studio provider initialized', {
-        availableModels: this.availableModels
+      const response = await fetch(`${endpoint}/models`, {
+        headers: {
+          'Content-Type': 'application/json'
+        }
       });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error?.message || 'Failed to validate endpoint');
+      }
+
+      this.endpoint = endpoint;
+      await this.logger.info('LM Studio provider initialized');
     } catch (error) {
-      await this.logger.error('LM Studio initialization failed', { error });
-      throw new Error('Failed to connect to LM Studio server');
+      if (error instanceof Error) {
+        throw new Error(`LM Studio endpoint validation failed: ${error.message}`);
+      }
+      throw error;
     }
   }
 
   async complete(prompt: string, options: LLMOptions = {}): Promise<LLMResponse> {
     if (!this.isInitialized()) {
-      throw new Error('LM Studio provider not initialized');
+      throw new Error('LM Studio provider not initialized. Please provide a valid endpoint.');
     }
 
     const requestBody = {
-      messages: [{ role: 'user', content: prompt }],
       model: this.currentModel,
-      temperature: options.temperature ?? 0.7,
+      messages: [{ role: 'user', content: prompt }],
       max_tokens: options.maxTokens,
+      temperature: options.temperature ?? 0.7,
       top_p: options.topP ?? 1,
-      frequency_penalty: options.frequencyPenalty ?? 0,
-      presence_penalty: options.presencePenalty ?? 0,
       stop: options.stop
     };
 
     try {
-      const response = await fetch(`${this.baseUrl}/v1/chat/completions`, {
+      const response = await fetch(`${this.endpoint}/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -71,6 +74,11 @@ export class LMStudioProvider implements LLMProvider {
       }
 
       const data = await response.json();
+      
+      if (!data.choices?.[0]?.message?.content) {
+        throw new Error('Invalid response format from LM Studio API');
+      }
+
       await this.logger.llm('LM Studio completion successful', {
         model: this.currentModel
       });
@@ -91,28 +99,8 @@ export class LMStudioProvider implements LLMProvider {
     }
   }
 
-  async listAvailableModels(): Promise<string[]> {
-    if (!this.isInitialized()) {
-      throw new Error('LM Studio provider not initialized');
-    }
-
-    try {
-      const response = await fetch(`${this.baseUrl}/v1/models`);
-      if (!response.ok) {
-        throw new Error('Failed to fetch available models');
-      }
-
-      const data = await response.json();
-      this.availableModels = data.data.map((model: any) => model.id);
-      return this.availableModels;
-    } catch (error) {
-      await this.logger.error('Failed to fetch LM Studio models', { error });
-      throw error;
-    }
-  }
-
   isInitialized(): boolean {
-    return this.baseUrl !== null;
+    return this.endpoint !== null;
   }
 
   getCurrentModel(): string {
@@ -126,16 +114,11 @@ export class LMStudioProvider implements LLMProvider {
     this.currentModel = model;
   }
 
-  validateApiKey(baseUrl: string): boolean {
-    try {
-      const url = new URL(baseUrl);
-      return url.protocol === 'http:' || url.protocol === 'https:';
-    } catch {
-      return false;
-    }
+  validateEndpoint(endpoint: string): boolean {
+    return this.ENDPOINT_PATTERN.test(endpoint);
   }
 
-  static getDefaultBaseUrl(): string {
-    return `http://localhost:${LMStudioProvider.prototype.DEFAULT_PORT}`;
+  validateApiKey(apiKey: string): boolean {
+    return true; // Not used for local providers
   }
 } 

@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { LLMProviderFactory, ProviderType } from '../llm/LLMProviderFactory';
 import { Logger } from '../utils/Logger';
+import '../styles/ProviderModal.css';
 
 interface ProviderModalProps {
-  isOpen: boolean;
   onClose: () => void;
   onSave: (config: ProviderConfig) => void;
   initialConfig?: ProviderConfig;
@@ -11,112 +11,160 @@ interface ProviderModalProps {
 
 interface ProviderConfig {
   type: ProviderType;
-  apiKey: string;
-  model: string;
+  apiKey?: string;
   endpoint?: string;
+  model: string;
+}
+
+interface ValidationState {
+  apiKey: boolean;
+  endpoint: boolean;
+  model: boolean;
+  message?: string;
 }
 
 export const ProviderModal: React.FC<ProviderModalProps> = ({
-  isOpen,
   onClose,
   onSave,
   initialConfig
 }) => {
-  const [config, setConfig] = useState<ProviderConfig>({
-    type: 'openai',
-    apiKey: '',
-    model: '',
-    endpoint: ''
-  });
-  const [testResult, setTestResult] = useState<string>('');
-  const [isTesting, setIsTesting] = useState(false);
+  const [providerType, setProviderType] = useState<ProviderType>(initialConfig?.type || 'openai');
+  const [apiKey, setApiKey] = useState(initialConfig?.apiKey || '');
+  const [endpoint, setEndpoint] = useState(initialConfig?.endpoint || '');
+  const [selectedModel, setSelectedModel] = useState(initialConfig?.model || '');
   const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [testResult, setTestResult] = useState<string>('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [validation, setValidation] = useState<ValidationState>({
+    apiKey: true,
+    endpoint: true,
+    model: true
+  });
+
+  const logger = Logger.getInstance();
 
   useEffect(() => {
-    if (initialConfig) {
-      setConfig(initialConfig);
+    const provider = LLMProviderFactory.getProvider(providerType);
+    setAvailableModels(LLMProviderFactory.getAvailableModels(providerType));
+    setSelectedModel(LLMProviderFactory.getDefaultModel(providerType));
+    
+    if (LLMProviderFactory.isLocalProvider(providerType)) {
+      setEndpoint(provider.defaultEndpoint || '');
     }
-  }, [initialConfig]);
+  }, [providerType]);
 
-  useEffect(() => {
-    // Update available models when provider type changes
-    const models = LLMProviderFactory.getAvailableModels(config.type);
-    setAvailableModels(models);
-    setConfig(prev => ({
-      ...prev,
-      model: LLMProviderFactory.getDefaultModel(config.type)
-    }));
+  const validateConfig = (): ValidationState => {
+    const newValidation: ValidationState = {
+      apiKey: true,
+      endpoint: true,
+      model: true
+    };
 
-    // Set default endpoint for local providers
-    if (LLMProviderFactory.isLocalProvider(config.type)) {
-      setConfig(prev => ({
-        ...prev,
-        endpoint: LLMProviderFactory.getDefaultEndpoint(config.type) || ''
-      }));
+    const provider = LLMProviderFactory.getProvider(providerType);
+    const isLocal = LLMProviderFactory.isLocalProvider(providerType);
+
+    if (!isLocal) {
+      if (!apiKey) {
+        newValidation.apiKey = false;
+        newValidation.message = 'API key is required';
+      } else if (provider.validateApiKey && !provider.validateApiKey(apiKey)) {
+        newValidation.apiKey = false;
+        newValidation.message = 'Invalid API key format';
+      }
+    } else {
+      if (!endpoint) {
+        newValidation.endpoint = false;
+        newValidation.message = 'Endpoint is required';
+      } else if (provider.validateEndpoint && !provider.validateEndpoint(endpoint)) {
+        newValidation.endpoint = false;
+        newValidation.message = 'Invalid endpoint URL format';
+      }
     }
-  }, [config.type]);
+
+    if (!selectedModel) {
+      newValidation.model = false;
+      newValidation.message = 'Please select a model';
+    }
+
+    return newValidation;
+  };
 
   const handleProviderChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    setConfig(prev => ({
-      ...prev,
-      type: event.target.value as ProviderType,
-      apiKey: ''
-    }));
+    const newType = event.target.value as ProviderType;
+    setProviderType(newType);
     setTestResult('');
-  };
-
-  const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = event.target;
-    setConfig(prev => ({ ...prev, [name]: value }));
-    setTestResult('');
-  };
-
-  const handleModelChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    setConfig(prev => ({ ...prev, model: event.target.value }));
+    setValidation({
+      apiKey: true,
+      endpoint: true,
+      model: true
+    });
   };
 
   const handleTest = async () => {
-    setIsTesting(true);
-    setTestResult('');
+    const newValidation = validateConfig();
+    setValidation(newValidation);
+
+    if (!newValidation.apiKey || !newValidation.endpoint || !newValidation.model) {
+      setTestResult(`Validation failed: ${newValidation.message}`);
+      return;
+    }
+
+    setIsLoading(true);
+    setTestResult('Testing connection...');
 
     try {
-      const provider = LLMProviderFactory.getProvider(config.type);
+      const provider = LLMProviderFactory.getProvider(providerType);
       
-      // Initialize with API key or endpoint
-      if (LLMProviderFactory.isLocalProvider(config.type)) {
-        await provider.initialize(config.endpoint!);
+      if (LLMProviderFactory.isLocalProvider(providerType)) {
+        await provider.initialize(endpoint);
       } else {
-        await provider.initialize(config.apiKey);
+        await provider.initialize(apiKey);
       }
 
-      // Set the selected model
-      provider.setModel(config.model);
-
-      // Send a test message
-      const response = await provider.complete('Hello!');
-      setTestResult(`Test successful! Response: ${response.content}`);
+      provider.setModel(selectedModel);
       
-      await Logger.getInstance().info('Provider test successful', {
-        provider: config.type,
-        model: config.model
+      const response = await provider.complete('Hello!');
+      
+      setTestResult(`Test successful!\nProvider: ${providerType}\nModel: ${selectedModel}\nResponse: ${response.content}`);
+      
+      await logger.info('Provider test successful', {
+        provider: providerType,
+        model: selectedModel
       });
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
       setTestResult(`Test failed: ${errorMessage}`);
-      await Logger.getInstance().error('Provider test failed', { 
-        error: error instanceof Error ? error : String(error)
+      await logger.error('Provider test failed', {
+        error: error instanceof Error ? error : String(error),
+        provider: providerType
       });
     } finally {
-      setIsTesting(false);
+      setIsLoading(false);
     }
   };
 
   const handleSave = () => {
-    onSave(config);
-    onClose();
-  };
+    const newValidation = validateConfig();
+    setValidation(newValidation);
 
-  if (!isOpen) return null;
+    if (!newValidation.apiKey || !newValidation.endpoint || !newValidation.model) {
+      setTestResult(`Validation failed: ${newValidation.message}`);
+      return;
+    }
+
+    const config: ProviderConfig = {
+      type: providerType,
+      model: selectedModel
+    };
+
+    if (LLMProviderFactory.isLocalProvider(providerType)) {
+      config.endpoint = endpoint;
+    } else {
+      config.apiKey = apiKey;
+    }
+
+    onSave(config);
+  };
 
   return (
     <div className="modal">
@@ -124,8 +172,8 @@ export const ProviderModal: React.FC<ProviderModalProps> = ({
         <h2>{initialConfig ? 'Edit Provider' : 'Add Provider'}</h2>
         
         <div className="form-group">
-          <label>Provider:</label>
-          <select value={config.type} onChange={handleProviderChange}>
+          <label>Provider Type:</label>
+          <select value={providerType} onChange={handleProviderChange}>
             {LLMProviderFactory.getProviderTypes().map(type => (
               <option key={type} value={type}>
                 {LLMProviderFactory.getProviderName(type)}
@@ -134,61 +182,63 @@ export const ProviderModal: React.FC<ProviderModalProps> = ({
           </select>
         </div>
 
-        {LLMProviderFactory.isLocalProvider(config.type) ? (
-          <div className="form-group">
-            <label>Endpoint:</label>
-            <input
-              type="text"
-              name="endpoint"
-              value={config.endpoint}
-              onChange={handleInputChange}
-              placeholder="http://localhost:port"
-            />
-          </div>
-        ) : (
+        {!LLMProviderFactory.isLocalProvider(providerType) ? (
           <div className="form-group">
             <label>API Key:</label>
             <input
               type="password"
-              name="apiKey"
-              value={config.apiKey}
-              onChange={handleInputChange}
-              placeholder="Enter API key"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              className={!validation.apiKey ? 'error' : ''}
+              placeholder="Enter your API key"
             />
+            {!validation.apiKey && <span className="error-message">{validation.message}</span>}
+          </div>
+        ) : (
+          <div className="form-group">
+            <label>Endpoint:</label>
+            <input
+              type="text"
+              value={endpoint}
+              onChange={(e) => setEndpoint(e.target.value)}
+              className={!validation.endpoint ? 'error' : ''}
+              placeholder="Enter the endpoint URL"
+            />
+            {!validation.endpoint && <span className="error-message">{validation.message}</span>}
           </div>
         )}
 
         <div className="form-group">
           <label>Model:</label>
-          <select value={config.model} onChange={handleModelChange}>
+          <select
+            value={selectedModel}
+            onChange={(e) => setSelectedModel(e.target.value)}
+            className={!validation.model ? 'error' : ''}
+          >
+            <option value="">Select a model</option>
             {availableModels.map(model => (
-              <option key={model} value={model}>{model}</option>
+              <option key={model} value={model}>
+                {model}
+              </option>
             ))}
           </select>
+          {!validation.model && <span className="error-message">{validation.message}</span>}
         </div>
 
-        <div className="test-section">
-          <button 
-            onClick={handleTest} 
-            disabled={isTesting || (!config.apiKey && !config.endpoint)}
-          >
-            {isTesting ? 'Testing...' : 'Test Connection'}
-          </button>
+        <div className="test-result">
           {testResult && (
-            <div className={`test-result ${testResult.includes('failed') ? 'error' : 'success'}`}>
+            <pre className={testResult.includes('failed') ? 'error' : 'success'}>
               {testResult}
-            </div>
+            </pre>
           )}
         </div>
 
-        <div className="modal-actions">
-          <button onClick={onClose}>Cancel</button>
-          <button 
-            onClick={handleSave}
-            disabled={!config.model || (!config.apiKey && !config.endpoint)}
-          >
-            Save
+        <div className="button-group">
+          <button onClick={handleTest} disabled={isLoading}>
+            {isLoading ? 'Testing...' : 'Test Connection'}
           </button>
+          <button onClick={handleSave} disabled={isLoading}>Save</button>
+          <button onClick={onClose} disabled={isLoading}>Cancel</button>
         </div>
       </div>
     </div>

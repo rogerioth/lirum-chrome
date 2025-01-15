@@ -1,69 +1,60 @@
 import { LLMProvider } from './LLMProvider';
 import { OpenAIProvider } from './OpenAIProvider';
 import { AnthropicProvider } from './AnthropicProvider';
-import { DeepseekProvider } from './DeepseekProvider';
 import { OllamaProvider } from './OllamaProvider';
+import { DeepseekProvider } from './DeepseekProvider';
 import { LMStudioProvider } from './LMStudioProvider';
 
-export type ProviderType = 'openai' | 'anthropic' | 'deepseek' | 'ollama' | 'lmstudio';
+export type ProviderType = 'openai' | 'anthropic' | 'ollama' | 'deepseek' | 'lmstudio';
 
 export class LLMProviderFactory {
-  private static providers: Map<ProviderType, LLMProvider> = new Map();
+    private static readonly providers = {
+        openai: OpenAIProvider,
+        anthropic: AnthropicProvider,
+        ollama: OllamaProvider,
+        deepseek: DeepseekProvider,
+        lmstudio: LMStudioProvider
+    };
 
-  static getProvider(type: ProviderType): LLMProvider {
-    let provider = this.providers.get(type);
-    
-    if (!provider) {
-      provider = this.createProvider(type);
-      this.providers.set(type, provider);
+    private static readonly providerNames = {
+        openai: 'OpenAI',
+        anthropic: 'Anthropic',
+        ollama: 'Ollama',
+        deepseek: 'Deepseek',
+        lmstudio: 'LM Studio'
+    };
+
+    private constructor() {
+        // Private constructor to prevent instantiation
     }
-    
-    return provider;
-  }
 
-  private static createProvider(type: ProviderType): LLMProvider {
-    switch (type) {
-      case 'openai':
-        return new OpenAIProvider();
-      case 'anthropic':
-        return new AnthropicProvider();
-      case 'deepseek':
-        return new DeepseekProvider();
-      case 'ollama':
-        return new OllamaProvider();
-      case 'lmstudio':
-        return new LMStudioProvider();
-      default:
-        throw new Error(`Unknown provider type: ${type}`);
+    static getProvider(type: ProviderType): LLMProvider {
+        const Provider = this.providers[type];
+        return new Provider();
     }
-  }
 
-  static getProviderTypes(): ProviderType[] {
-    return ['openai', 'anthropic', 'deepseek', 'ollama', 'lmstudio'];
-  }
-
-  static getProviderName(type: ProviderType): string {
-    return this.getProvider(type).name;
-  }
-
-  static getDefaultModel(type: ProviderType): string {
-    return this.getProvider(type).defaultModel;
-  }
-
-  static getAvailableModels(type: ProviderType): string[] {
-    return this.getProvider(type).availableModels;
-  }
-
-  static isLocalProvider(type: ProviderType): boolean {
-    return type === 'ollama' || type === 'lmstudio';
-  }
-
-  static getDefaultEndpoint(type: ProviderType): string | null {
-    if (type === 'ollama') {
-      return OllamaProvider.getDefaultBaseUrl();
-    } else if (type === 'lmstudio') {
-      return LMStudioProvider.getDefaultBaseUrl();
+    static getProviderTypes(): ProviderType[] {
+        return Object.keys(this.providers) as ProviderType[];
     }
-    return null;
-  }
+
+    static getProviderName(type: ProviderType): string {
+        return this.providerNames[type];
+    }
+
+    static getDefaultModel(type: ProviderType): string {
+        return this.getProvider(type).defaultModel;
+    }
+
+    static getAvailableModels(type: ProviderType): string[] {
+        return this.getProvider(type).availableModels;
+    }
+
+    static isLocalProvider(type: ProviderType): boolean {
+        return type === 'ollama' || type === 'lmstudio';
+    }
+
+    static getDefaultEndpoint(type: ProviderType): string | undefined {
+        if (!this.isLocalProvider(type)) return undefined;
+        return this.getProvider(type).defaultEndpoint;
+    }
 } 

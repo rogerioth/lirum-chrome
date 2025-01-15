@@ -1,13 +1,22 @@
+import { LLMProvider as Provider } from '../llm/LLMProvider';
+import { OpenAIProvider } from '../llm/OpenAIProvider';
+import { AnthropicProvider } from '../llm/AnthropicProvider';
+import { OllamaProvider } from '../llm/OllamaProvider';
+import { DeepseekProvider } from '../llm/DeepseekProvider';
+import { LMStudioProvider } from '../llm/LMStudioProvider';
+import { Logger, LogLevel } from '../utils/Logger';
+
 interface LLMProvider {
     type: string;
     name: string;
-    endpoint: string;
-    apiKey: string;
+    endpoint?: string;
+    apiKey?: string;
+    model: string;
 }
 
-type ProviderType = 'openai' | 'anthropic' | 'ollama' | 'deepseek';
+type ProviderType = 'openai' | 'anthropic' | 'ollama' | 'deepseek' | 'lmstudio';
 
-const PROVIDER_TYPES: ProviderType[] = ['openai', 'anthropic', 'ollama', 'deepseek'];
+const PROVIDER_TYPES: ProviderType[] = ['openai', 'anthropic', 'ollama', 'deepseek', 'lmstudio'];
 
 interface Command {
     name: string;
@@ -22,176 +31,113 @@ const DEFAULT_COMMANDS: Command[] = [
     { name: 'Analyze Tone', description: 'Analyze the tone of the content' }
 ];
 
-type LogLevel = 'info' | 'debug' | 'error' | 'llm';
-
-interface LogEntry {
-    timestamp: number;
-    level: LogLevel;
-    message: string;
-    details?: any;
-}
-
-class Logger {
-    private static instance: Logger;
-    private logs: LogEntry[] = [];
-    private maxLogs: number = 1000;
-    private listeners: ((entry: LogEntry) => void)[] = [];
-
-    private constructor() {
-        // Load existing logs from storage
-        chrome.storage.local.get(['logs'], (result) => {
-            if (result.logs) {
-                this.logs = result.logs;
-                this.notifyListeners(this.logs[this.logs.length - 1]);
-            }
-        });
-    }
-
-    static getInstance(): Logger {
-        if (!Logger.instance) {
-            Logger.instance = new Logger();
-        }
-        return Logger.instance;
-    }
-
-    addListener(callback: (entry: LogEntry) => void): void {
-        this.listeners.push(callback);
-    }
-
-    private notifyListeners(entry: LogEntry): void {
-        this.listeners.forEach(listener => listener(entry));
-    }
-
-    private async saveToStorage(): Promise<void> {
-        await chrome.storage.local.set({ logs: this.logs });
-    }
-
-    log(level: LogLevel, message: string, details?: any): void {
-        const entry: LogEntry = {
-            timestamp: Date.now(),
-            level,
-            message,
-            details
-        };
-
-        this.logs.push(entry);
-        if (this.logs.length > this.maxLogs) {
-            this.logs.shift();
-        }
-
-        this.notifyListeners(entry);
-        this.saveToStorage();
-    }
-
-    info(message: string, details?: any): void {
-        this.log('info', message, details);
-    }
-
-    debug(message: string, details?: any): void {
-        this.log('debug', message, details);
-    }
-
-    error(message: string, details?: any): void {
-        this.log('error', message, details);
-    }
-
-    llm(message: string, details?: any): void {
-        this.log('llm', message, details);
-    }
-
-    clear(): void {
-        this.logs = [];
-        this.saveToStorage();
-        this.notifyListeners({ timestamp: Date.now(), level: 'info', message: 'Logs cleared' });
-    }
-
-    getFilteredLogs(levels: LogLevel[]): LogEntry[] {
-        return this.logs.filter(log => levels.includes(log.level));
-    }
-
-    exportLogs(): string {
-        return JSON.stringify(this.logs, null, 2);
-    }
-}
-
 class OptionsManager {
     private providers: LLMProvider[] = [];
-    private commands: Command[] = [...DEFAULT_COMMANDS];
+    private commands: Command[] = [];
     private selectedProviderIndex: number = -1;
-    private logger: Logger;
-    private activeLogLevels: Set<LogLevel> = new Set(['info', 'debug', 'error', 'llm']);
+    private readonly logger: Logger;
 
     constructor() {
         this.logger = Logger.getInstance();
         this.initializeEventListeners();
         this.loadSettings();
-        this.initializeLogging();
     }
 
-    private initializeLogging(): void {
-        // Toggle logs container visibility
-        const logsHeader = document.getElementById('logs-header');
-        const logsContainer = document.getElementById('logs-container');
-        
-        logsHeader?.addEventListener('click', (e) => {
-            if (!(e.target as HTMLElement).closest('button')) {
-                if (logsContainer) {
-                    logsContainer.style.display = logsContainer.style.display === 'none' ? 'block' : 'none';
+    private getProviderInstance(type: ProviderType): Provider {
+        switch (type) {
+            case 'openai':
+                return new OpenAIProvider();
+            case 'anthropic':
+                return new AnthropicProvider();
+            case 'ollama':
+                return new OllamaProvider();
+            case 'deepseek':
+                return new DeepseekProvider();
+            case 'lmstudio':
+                return new LMStudioProvider();
+            default:
+                throw new Error(`Unknown provider type: ${type}`);
+        }
+    }
+
+    private isLocalProvider(type: ProviderType): boolean {
+        return type === 'ollama' || type === 'lmstudio';
+    }
+
+    private async testProvider(): Promise<void> {
+        const typeSelect = document.getElementById('provider-type') as HTMLSelectElement;
+        const endpointInput = document.getElementById('provider-endpoint') as HTMLInputElement;
+        const apiKeyInput = document.getElementById('provider-apikey') as HTMLInputElement;
+        const modelSelect = document.getElementById('provider-model') as HTMLSelectElement;
+        const testButton = document.getElementById('test-provider') as HTMLButtonElement;
+
+        try {
+            this.setLoading(testButton, true);
+            const type = typeSelect.value as ProviderType;
+            const provider = this.getProviderInstance(type);
+            const isLocal = this.isLocalProvider(type);
+
+            // Validate inputs
+            if (isLocal) {
+                if (!endpointInput.value) {
+                    throw new Error('Endpoint is required');
+                }
+                if (endpointInput.value && provider.validateEndpoint?.(endpointInput.value) === false) {
+                    throw new Error('Invalid endpoint URL format. Please provide a valid HTTP/HTTPS URL.');
+                }
+            } else {
+                if (!apiKeyInput.value) {
+                    throw new Error('API key is required');
+                }
+                if (apiKeyInput.value && provider.validateApiKey?.(apiKeyInput.value) === false) {
+                    throw new Error('Invalid API key format.');
                 }
             }
-        });
 
-        // Clear logs
-        document.getElementById('clear-logs')?.addEventListener('click', () => {
-            this.logger.clear();
-            this.renderLogs();
-        });
+            if (!modelSelect.value) {
+                throw new Error('Please select a model');
+            }
 
-        // Export logs
-        document.getElementById('export-logs')?.addEventListener('click', () => {
-            const blob = new Blob([this.logger.exportLogs()], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `lirum-logs-${new Date().toISOString()}.json`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-        });
+            // Initialize provider
+            if (isLocal) {
+                await provider.initialize(endpointInput.value);
+            } else {
+                await provider.initialize(apiKeyInput.value);
+            }
 
-        // Log filters
-        document.querySelectorAll('.log-filters input').forEach((checkbox) => {
-            checkbox.addEventListener('change', (e) => {
-                const level = (e.target as HTMLInputElement).dataset.level as LogLevel;
-                if ((e.target as HTMLInputElement).checked) {
-                    this.activeLogLevels.add(level);
-                } else {
-                    this.activeLogLevels.delete(level);
-                }
-                this.renderLogs();
+            // Set model and test connection
+            provider.setModel(modelSelect.value);
+            const response = await provider.complete('Hello!');
+            
+            this.logger.info('Provider test successful', {
+                type,
+                model: modelSelect.value,
+                response: response.content
             });
-        });
 
-        // Subscribe to log updates
-        this.logger.addListener(() => this.renderLogs());
-        
-        // Initial render
-        this.renderLogs();
+            this.showMessage(`Connection test successful!\nModel: ${modelSelect.value}\nResponse: ${response.content}`, false, true);
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : 'Test failed';
+            this.logger.error('Provider test failed', { error: errorMessage });
+            this.showMessage(errorMessage, true, true);
+        } finally {
+            this.setLoading(testButton, false);
+        }
     }
 
-    private renderLogs(): void {
-        const logsContent = document.getElementById('logs-content');
-        if (!logsContent) return;
+    private showMessage(message: string, isError: boolean = false, isTest: boolean = false): void {
+        const messageContainer = document.getElementById('modal-message');
+        if (!messageContainer) return;
 
-        const filteredLogs = this.logger.getFilteredLogs(Array.from(this.activeLogLevels));
-        logsContent.innerHTML = filteredLogs.map(log => {
-            const time = new Date(log.timestamp).toLocaleTimeString();
-            const details = log.details ? ` ${JSON.stringify(log.details)}` : '';
-            return `<div class="log-entry ${log.level}">[${time}] [${log.level.toUpperCase()}] ${log.message}${details}</div>`;
-        }).join('\n');
+        messageContainer.textContent = message;
+        messageContainer.className = `message-container ${isError ? 'error' : 'success'}`;
+        messageContainer.style.display = 'block';
 
-        logsContent.scrollTop = logsContent.scrollHeight;
+        if (!isTest) {
+            setTimeout(() => {
+                messageContainer.style.display = 'none';
+            }, 3000);
+        }
     }
 
     private initializeEventListeners(): void {
@@ -214,11 +160,15 @@ class OptionsManager {
         document.getElementById('modal-close')?.addEventListener('click', () => this.hideProviderModal());
         document.getElementById('modal-save')?.addEventListener('click', () => this.saveProviderModal());
         document.getElementById('test-provider')?.addEventListener('click', () => this.testProvider());
-        
+
         // Provider type change listener
         const typeSelect = document.getElementById('provider-type') as HTMLSelectElement;
         if (typeSelect) {
-            typeSelect.addEventListener('change', () => this.updateProviderName());
+            typeSelect.addEventListener('change', () => {
+                this.updateProviderName();
+                this.updateProviderFields();
+                this.updateModelsList();
+            });
         }
 
         // Provider selection listener
@@ -253,44 +203,47 @@ class OptionsManager {
         }
     }
 
-    private async testProvider(): Promise<void> {
-        const typeSelect = document.getElementById('provider-type') as HTMLSelectElement;
-        const endpointInput = document.getElementById('provider-endpoint') as HTMLInputElement;
-        const apiKeyInput = document.getElementById('provider-apikey') as HTMLInputElement;
-
-        try {
-            if (!endpointInput.value || !apiKeyInput.value) {
-                throw new Error('Please fill in all fields');
-            }
-            
-            this.logger.info('Testing provider connection', {
-                type: typeSelect.value,
-                endpoint: endpointInput.value
-            });
-            
-            // Here you would make the actual API call
-            this.showMessage('Connection test successful!', false, true);
-        } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : 'Test failed';
-            this.logger.error('Provider test failed', { error: errorMessage });
-            this.showMessage(errorMessage, true, true);
-        }
-    }
-
-    private saveProviderModal(): void {
+    private async saveProviderModal(): Promise<void> {
         const typeSelect = document.getElementById('provider-type') as HTMLSelectElement;
         const nameInput = document.getElementById('provider-name') as HTMLInputElement;
         const endpointInput = document.getElementById('provider-endpoint') as HTMLInputElement;
         const apiKeyInput = document.getElementById('provider-apikey') as HTMLInputElement;
-
-        const provider: LLMProvider = {
-            type: typeSelect.value as ProviderType,
-            name: nameInput.value,
-            endpoint: endpointInput.value,
-            apiKey: apiKeyInput.value
-        };
+        const modelSelect = document.getElementById('provider-model') as HTMLSelectElement;
+        const saveButton = document.getElementById('modal-save') as HTMLButtonElement;
 
         try {
+            this.setLoading(saveButton, true);
+            const type = typeSelect.value as ProviderType;
+            const isLocal = this.isLocalProvider(type);
+
+            if (!nameInput.value) {
+                throw new Error('Provider name is required');
+            }
+
+            if (isLocal && !endpointInput.value) {
+                throw new Error('Endpoint is required');
+            }
+
+            if (!isLocal && !apiKeyInput.value) {
+                throw new Error('API key is required');
+            }
+
+            if (!modelSelect.value) {
+                throw new Error('Please select a model');
+            }
+
+            const provider: LLMProvider = {
+                type,
+                name: nameInput.value,
+                model: modelSelect.value
+            };
+
+            if (isLocal) {
+                provider.endpoint = endpointInput.value;
+            } else {
+                provider.apiKey = apiKeyInput.value;
+            }
+
             if (this.selectedProviderIndex !== -1) {
                 this.providers[this.selectedProviderIndex] = provider;
                 this.logger.info('Provider updated', { name: provider.name, type: provider.type });
@@ -299,11 +252,15 @@ class OptionsManager {
                 this.logger.info('New provider added', { name: provider.name, type: provider.type });
             }
 
+            await this.saveSettings();
             this.renderProviders();
             this.hideProviderModal();
-            this.saveSettings();
         } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : 'Failed to save provider';
+            this.showMessage(errorMessage, true, true);
             this.logger.error('Failed to save provider', { error });
+        } finally {
+            this.setLoading(saveButton, false);
         }
     }
 
@@ -341,19 +298,28 @@ class OptionsManager {
         const nameInput = document.getElementById('provider-name') as HTMLInputElement;
         const endpointInput = document.getElementById('provider-endpoint') as HTMLInputElement;
         const apiKeyInput = document.getElementById('provider-apikey') as HTMLInputElement;
+        const modelSelect = document.getElementById('provider-model') as HTMLSelectElement;
 
         if (provider) {
             typeSelect.value = provider.type;
             nameInput.value = provider.name;
-            endpointInput.value = provider.endpoint;
-            apiKeyInput.value = provider.apiKey;
+            endpointInput.value = provider.endpoint || '';
+            apiKeyInput.value = provider.apiKey || '';
+            
+            // Update available models and select the saved model
+            this.updateModelsList();
+            modelSelect.value = provider.model;
         } else {
             typeSelect.value = PROVIDER_TYPES[0];
             nameInput.value = PROVIDER_TYPES[0];
             endpointInput.value = '';
             apiKeyInput.value = '';
+            
+            // Initialize models list with default selection
+            this.updateModelsList();
         }
 
+        this.updateProviderFields();
         modal.style.display = 'block';
     }
 
@@ -433,34 +399,6 @@ class OptionsManager {
         });
     }
 
-    private showMessage(message: string, isError: boolean = false, inModal: boolean = false): void {
-        if (inModal) {
-            const messageContainer = document.getElementById('modal-message');
-            if (messageContainer) {
-                messageContainer.textContent = message;
-                messageContainer.style.display = 'block';
-                messageContainer.className = `message-container ${isError ? 'error' : 'success'}`;
-                
-                // Hide the message after 3 seconds
-                setTimeout(() => {
-                    messageContainer.style.display = 'none';
-                }, 3000);
-            }
-            return;
-        }
-
-        const messageDiv = document.createElement('div');
-        messageDiv.textContent = message;
-        messageDiv.style.padding = '10px';
-        messageDiv.style.margin = '10px 0';
-        messageDiv.style.backgroundColor = isError ? '#ffebee' : '#e8f5e9';
-        messageDiv.style.color = isError ? '#c62828' : '#2e7d32';
-        messageDiv.style.borderRadius = '4px';
-
-        document.body.insertBefore(messageDiv, document.body.firstChild);
-        setTimeout(() => messageDiv.remove(), 3000);
-    }
-
     private editSelectedProvider(): void {
         const select = document.getElementById('providers-list') as HTMLSelectElement;
         if (!select || select.selectedIndex === -1) return;
@@ -492,6 +430,63 @@ class OptionsManager {
         } catch (error) {
             this.showMessage('Error saving settings!', true);
             console.error('Error saving settings:', error);
+        }
+    }
+
+    private updateProviderFields(): void {
+        const typeSelect = document.getElementById('provider-type') as HTMLSelectElement;
+        const endpointInput = document.getElementById('provider-endpoint') as HTMLInputElement;
+        const apiKeyInput = document.getElementById('provider-apikey') as HTMLInputElement;
+        
+        const type = typeSelect.value as ProviderType;
+        const isLocal = this.isLocalProvider(type);
+        
+        if (isLocal) {
+            endpointInput.parentElement!.style.display = 'block';
+            apiKeyInput.parentElement!.style.display = 'none';
+            endpointInput.value = this.getProviderInstance(type).defaultEndpoint || '';
+            apiKeyInput.value = '';
+        } else {
+            endpointInput.parentElement!.style.display = 'none';
+            apiKeyInput.parentElement!.style.display = 'block';
+            endpointInput.value = '';
+        }
+    }
+
+    private updateModelsList(): void {
+        const typeSelect = document.getElementById('provider-type') as HTMLSelectElement;
+        const modelSelect = document.getElementById('provider-model') as HTMLSelectElement;
+        
+        if (!modelSelect) return;
+
+        const type = typeSelect.value as ProviderType;
+        const provider = this.getProviderInstance(type);
+        const models = provider.availableModels;
+        const defaultModel = provider.defaultModel;
+
+        modelSelect.innerHTML = '';
+        models.forEach(model => {
+            const option = document.createElement('option');
+            option.value = model;
+            option.textContent = model;
+            modelSelect.appendChild(option);
+        });
+
+        modelSelect.value = defaultModel;
+    }
+
+    private setLoading(button: HTMLButtonElement, loading: boolean): void {
+        const spinner = button.querySelector('.spinner') as HTMLElement;
+        const text = button.querySelector('span') as HTMLElement;
+        
+        if (loading) {
+            spinner.style.display = 'inline-block';
+            button.disabled = true;
+            text.style.opacity = '0.7';
+        } else {
+            spinner.style.display = 'none';
+            button.disabled = false;
+            text.style.opacity = '1';
         }
     }
 }
