@@ -1,0 +1,120 @@
+Lirum Chrome LLMs - specs.txt
+-----------------------------
+
+1. Overview
+-----------
+Lirum Chrome LLMs is a Google Chrome extension designed to seamlessly integrate various Large Language Models (LLMs)—such as OpenAI, Anthropic, and Deepseek—into your browsing experience. Once installed, users can invoke the extension on any webpage and send the page content along with a customizable command (e.g., "Summarize") to the LLM of their choice. The extension also provides secure storage for API credentials and flexible settings for managing multiple LLM providers.
+
+2. Key Features
+---------------
+2.1. Secure Storage of API Credentials
+    - Store API keys for multiple LLM providers (e.g., OpenAI, Anthropic, Deepseek) in a secure manner.
+    - Provide secure input fields in the extension settings where users can add or update credentials.
+    - Encrypt or securely handle keys (as per Chrome extension best practices) to prevent unauthorized access.
+
+2.2. Integration with Major LLM Providers
+    - Out-of-the-box support for:
+      • OpenAI
+      • Anthropic
+      • Deepseek
+    - Capability to add more providers through the extension settings.
+
+2.3. On-Page Invocation
+    - A browser action (e.g., clicking the extension icon) that opens a popup containing:
+      • An editable combo box pre-populated with the text command "Summarize."
+      • Common default commands in the combo box, such as:
+        1) Summarize
+        2) Paraphrase
+        3) Bullet Points
+        4) Translate
+        5) Analyze Tone
+      • A text box that automatically grabs the page content (or a relevant excerpt) and sends it to the selected LLM.
+      • A button or the Return key to send the request.
+
+2.4. Customizable Commands
+    - Let users edit the default commands or add new ones.
+    - Store frequently used commands in the extension’s settings for quick selection.
+
+2.5. Extension Settings
+    - A dedicated settings page or popup that includes:
+      • A form to add, remove, or edit LLM configurations (name, key, endpoint).
+      • Pre-populated entries for OpenAI, Anthropic, Deepseek.
+      • A combo list of available LLMs that can be selected as default or toggled for quick access.
+      • Input validation to ensure credentials and endpoints are correctly formatted.
+
+3. Workflow
+-----------
+1) The user navigates to any webpage they wish to analyze or summarize.
+2) The user clicks the Lirum Chrome LLMs extension icon.
+3) A popup appears containing:
+   - A combo box with default commands ("Summarize," "Paraphrase," etc.).
+   - A text box displaying the default command or user-selected command.
+   - The page’s text content is automatically extracted and ready to be sent.
+   - The user can alter or type a new command.
+4) The user clicks the action button (or presses Enter).
+5) The chosen LLM endpoint is called using the stored API key.
+6) The response is displayed in the popup, allowing the user to copy or view the result immediately.
+
+4. Technical Architecture
+-------------------------
+4.1. Manifest
+    - Utilize the latest Chrome extension manifest (Manifest V3) for modern security and compatibility.
+
+4.2. Content Script and DOM Extraction
+    - A content script that can gather text from the current webpage (e.g., the main body content, selected text, or entire HTML).
+    - Must handle potential issues like iframes, dynamic loading, or single-page applications.
+
+4.3. Background Service Worker (if needed)
+    - Manage secure communication between the content script and external APIs.
+    - Store and retrieve API credentials in chrome.storage with appropriate permissions.
+
+4.4. Popup (User Interface)
+    - A React or vanilla JavaScript/HTML/CSS popup that allows users to:
+      • Pick an LLM from a drop-down list.
+      • Enter or select a command from the combo box.
+      • See status messages (e.g., loading, response received).
+      • Configure extension settings (if done within the popup) or route to a separate Options page.
+
+4.5. Secure Storage
+    - Use chrome.storage.sync or chrome.storage.local for credential storage.
+    - Potentially leverage encryption libraries to store sensitive API keys if feasible.
+
+5. Scripts for Development and Deployment
+-----------------------------------------
+Provide shell scripts/batch files for each major platform—Windows, macOS (Darwin), and Linux. These scripts should streamline setup, testing, and deployment of the extension.
+
+5.1. Environment Setup Script (setup-env)
+    - Install necessary development tools (e.g., Node.js, npm, Yarn) and dependencies.
+    - Configure environment variables if needed.
+    - Example usage: 
+      - Linux/macOS: `./setup-env.sh`
+      - Windows: `setup-env.bat`
+
+5.2. Run Script (run)
+    - Launch a local development server or watchers if applicable (for hot-reload features in a React build).
+    - Example usage: 
+      - Linux/macOS: `./run.sh`
+      - Windows: `run.bat`
+
+5.3. Test Script (test)
+    - Run lint checks, unit tests, or integration tests for the extension code.
+    - Example usage:
+      - Linux/macOS: `./test.sh`
+      - Windows: `test.bat`
+
+5.4. Deploy Script (deploy)
+    - Package the extension into a distributable ZIP file or folder, ready for upload to the Chrome Web Store.
+    - Example usage:
+      - Linux/macOS: `./deploy.sh`
+      - Windows: `deploy.bat`
+
+6. Roadmap & Future Enhancements
+--------------------------------
+- Add support for more LLMs, including specialized or open-source models.
+- Offer a context menu option (right-click) to select text and send it directly to the extension.
+- Implement advanced caching or local processing to reduce API calls or latency.
+- Provide user analytics or usage statistics (with full user consent) to optimize performance.
+
+7. Conclusion
+-------------
+Lirum Chrome LLMs aims to bring the power of multiple Large Language Models directly to your browser. By combining secure credential management, a flexible command system, and a straightforward user interface, the extension helps users streamline research, writing, analysis, and much more.
