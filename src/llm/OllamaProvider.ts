@@ -26,9 +26,14 @@ export class OllamaProvider implements LLMProvider {
     this.logger = Logger.getInstance();
   }
 
-  async initialize(apiKey?: string, endpoint?: string): Promise<void> {
+  async initialize(apiKeyOrEndpoint: string): Promise<void> {
     try {
-        this.endpoint = endpoint || this.defaultEndpoint;
+        // For Ollama, we use the first parameter as endpoint
+        this.endpoint = apiKeyOrEndpoint;
+        if (!this.endpoint) {
+            throw new Error('Endpoint is required for Ollama');
+        }
+
         const url = `${this.endpoint}/api/tags`;
 
         await this.logger.info('Testing Ollama endpoint', {

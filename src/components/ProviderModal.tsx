@@ -48,10 +48,12 @@ export const ProviderModal: React.FC<ProviderModalProps> = ({
     setAvailableModels(LLMProviderFactory.getAvailableModels(providerType));
     setSelectedModel(LLMProviderFactory.getDefaultModel(providerType));
     
-    if (LLMProviderFactory.isLocalProvider(providerType)) {
+    // Only set default endpoint if it's a new provider (no initialConfig)
+    // and the current endpoint is empty
+    if (LLMProviderFactory.isLocalProvider(providerType) && !initialConfig && !endpoint) {
       setEndpoint(provider.defaultEndpoint || '');
     }
-  }, [providerType]);
+  }, [providerType, initialConfig, endpoint]);
 
   const validateConfig = (): ValidationState => {
     const newValidation: ValidationState = {
@@ -117,26 +119,41 @@ export const ProviderModal: React.FC<ProviderModalProps> = ({
       
       if (LLMProviderFactory.isLocalProvider(providerType)) {
         await provider.initialize(endpoint);
+        
+        // For Ollama, we need to verify the model exists
+        if (providerType === 'ollama') {
+          const response = await fetch(`${endpoint}/api/tags`);
+          if (!response.ok) {
+            throw new Error(`Failed to get available models: ${response.statusText}`);
+          }
+          const data = await response.json();
+          const models = data.models.map((m: any) => m.name);
+          if (!models.includes(selectedModel)) {
+            throw new Error(`Model "${selectedModel}" is not available. Available models: ${models.join(', ')}`);
+          }
+        }
       } else {
         await provider.initialize(apiKey);
       }
 
       provider.setModel(selectedModel);
       
-      const response = await provider.complete('Hello!');
+      const response = await provider.complete('Hello! Please respond with a short greeting.');
       
       setTestResult(`Test successful!\nProvider: ${providerType}\nModel: ${selectedModel}\nResponse: ${response.content}`);
       
       await logger.info('Provider test successful', {
         provider: providerType,
-        model: selectedModel
+        model: selectedModel,
+        endpoint: LLMProviderFactory.isLocalProvider(providerType) ? endpoint : undefined
       });
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
       setTestResult(`Test failed: ${errorMessage}`);
       await logger.error('Provider test failed', {
         error: error instanceof Error ? error : String(error),
-        provider: providerType
+        provider: providerType,
+        endpoint: LLMProviderFactory.isLocalProvider(providerType) ? endpoint : undefined
       });
     } finally {
       setIsLoading(false);
@@ -202,7 +219,7 @@ export const ProviderModal: React.FC<ProviderModalProps> = ({
               value={endpoint}
               onChange={(e) => setEndpoint(e.target.value)}
               className={!validation.endpoint ? 'error' : ''}
-              placeholder="Enter the endpoint URL"
+              placeholder={`Enter the endpoint URL (default: ${LLMProviderFactory.getDefaultEndpoint(providerType)})`}
             />
             {!validation.endpoint && <span className="error-message">{validation.message}</span>}
           </div>
@@ -210,18 +227,28 @@ export const ProviderModal: React.FC<ProviderModalProps> = ({
 
         <div className="form-group">
           <label>Model:</label>
-          <select
-            value={selectedModel}
-            onChange={(e) => setSelectedModel(e.target.value)}
-            className={!validation.model ? 'error' : ''}
-          >
-            <option value="">Select a model</option>
-            {availableModels.map(model => (
-              <option key={model} value={model}>
-                {model}
-              </option>
-            ))}
-          </select>
+          {providerType === 'ollama' ? (
+            <input
+              type="text"
+              value={selectedModel}
+              onChange={(e) => setSelectedModel(e.target.value)}
+              className={!validation.model ? 'error' : ''}
+              placeholder="Enter model name (e.g., llama2, codellama, mistral)"
+            />
+          ) : (
+            <select
+              value={selectedModel}
+              onChange={(e) => setSelectedModel(e.target.value)}
+              className={!validation.model ? 'error' : ''}
+            >
+              <option value="">Select a model</option>
+              {availableModels.map(model => (
+                <option key={model} value={model}>
+                  {model}
+                </option>
+              ))}
+            </select>
+          )}
           {!validation.model && <span className="error-message">{validation.message}</span>}
         </div>
 
