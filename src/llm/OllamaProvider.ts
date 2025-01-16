@@ -19,100 +19,143 @@ export class OllamaProvider implements LLMProvider {
   private currentModel: string;
   private readonly logger: Logger;
   private readonly ENDPOINT_PATTERN = /^https?:\/\/[^\s/$.?#].[^\s]*$/i;
+  private initialized = false;
 
   constructor() {
     this.currentModel = this.defaultModel;
     this.logger = Logger.getInstance();
   }
 
-  async initialize(endpoint: string = this.defaultEndpoint): Promise<void> {
-    if (!this.validateEndpoint(endpoint)) {
-      throw new Error('Invalid endpoint URL format. Please provide a valid HTTP/HTTPS URL.');
-    }
-
-    // Test the endpoint with a simple health check
+  async initialize(apiKey?: string, endpoint?: string): Promise<void> {
     try {
-      const response = await fetch(`${endpoint}/api/tags`, {
-        headers: {
-          'Content-Type': 'application/json'
+        this.endpoint = endpoint || this.defaultEndpoint;
+        const url = `${this.endpoint}/api/tags`;
+
+        await this.logger.info('Testing Ollama endpoint', {
+            url,
+            method: 'GET',
+            headers: { 'Content-Type': 'application/json' }
+        });
+
+        const response = await fetch(url, {
+            method: 'GET',
+            headers: { 'Content-Type': 'application/json' }
+        });
+
+        const responseText = await response.text();
+        await this.logger.debug('Raw Ollama response', {
+            url,
+            status: response.status,
+            statusText: response.statusText,
+            rawResponse: responseText
+        });
+
+        if (!response.ok) {
+            throw new Error(`Ollama API request failed with status ${response.status}: ${responseText}`);
         }
-      });
 
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error?.message || 'Failed to validate endpoint');
-      }
+        let data;
+        try {
+            data = JSON.parse(responseText);
+        } catch (parseError) {
+            await this.logger.error('Failed to parse Ollama response', {
+                url,
+                status: response.status,
+                rawResponse: responseText,
+                parseError: parseError instanceof Error ? parseError.message : String(parseError)
+            });
+            throw new Error(`Invalid JSON response from Ollama API: ${responseText}`);
+        }
 
-      this.endpoint = endpoint;
-      await this.logger.info('Ollama provider initialized');
+        if (!Array.isArray(data.models)) {
+            throw new Error('Invalid response format from Ollama API: missing models array');
+        }
+
+        await this.logger.info('Ollama endpoint test successful', { data });
+        this.initialized = true;
     } catch (error) {
-      if (error instanceof Error) {
-        throw new Error(`Ollama endpoint validation failed: ${error.message}`);
-      }
-      throw error;
+        if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
+            throw new Error(`Failed to connect to Ollama endpoint: ${this.endpoint} - Is Ollama running?`);
+        }
+        throw error;
     }
   }
 
-  async complete(prompt: string, options: LLMOptions = {}): Promise<LLMResponse> {
-    if (!this.isInitialized()) {
-      throw new Error('Ollama provider not initialized. Please provide a valid endpoint.');
-    }
-
-    const requestBody = {
-      model: this.currentModel,
-      messages: [{ role: 'user', content: prompt }],
-      stream: false,
-      options: {
-        num_predict: options.maxTokens,
-        temperature: options.temperature ?? 0.7,
-        top_p: options.topP ?? 1,
-        stop: options.stop
-      }
-    };
-
+  async complete(prompt: string, options?: LLMOptions): Promise<LLMResponse> {
     try {
-      const response = await fetch(`${this.endpoint}/api/chat`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(requestBody)
-      });
+        if (!this.endpoint) {
+            throw new Error('Ollama provider not initialized. Please provide a valid endpoint.');
+        }
 
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error?.message || 'Ollama API request failed');
-      }
+        const url = `${this.endpoint}/api/generate`;
+        const requestBody = {
+            model: this.currentModel,
+            prompt,
+            stream: false
+        };
 
-      const data = await response.json();
-      
-      if (!data.message?.content) {
-        throw new Error('Invalid response format from Ollama API');
-      }
+        await this.logger.info('Sending request to Ollama', {
+            url,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: requestBody
+        });
 
-      await this.logger.llm('Ollama completion successful', {
-        model: this.currentModel,
-        usage: data.timings
-      });
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestBody)
+        });
 
-      return {
-        content: data.message.content,
-        model: this.currentModel,
-        usage: {
-          promptTokens: data.timings?.prompt_tokens ?? 0,
-          completionTokens: data.timings?.completion_tokens ?? 0,
-          totalTokens: (data.timings?.prompt_tokens ?? 0) + (data.timings?.completion_tokens ?? 0)
-        },
-        raw: data
-      };
+        const responseText = await response.text();
+        await this.logger.debug('Raw Ollama response', {
+            url,
+            status: response.status,
+            statusText: response.statusText,
+            rawResponse: responseText
+        });
+
+        if (!response.ok) {
+            throw new Error(`Ollama API request failed with status ${response.status}: ${responseText}`);
+        }
+
+        let data;
+        try {
+            data = JSON.parse(responseText);
+        } catch (parseError) {
+            await this.logger.error('Failed to parse Ollama response', {
+                url,
+                status: response.status,
+                rawResponse: responseText,
+                parseError: parseError instanceof Error ? parseError.message : String(parseError)
+            });
+            throw new Error(`Invalid JSON response from Ollama API: ${responseText}`);
+        }
+
+        if (!data.response) {
+            throw new Error('Invalid response format from Ollama API: missing response field');
+        }
+
+        await this.logger.info('Ollama response received', { data });
+
+        return {
+            content: data.response,
+            model: this.currentModel,
+            usage: {
+                promptTokens: data.prompt_eval_count || 0,
+                completionTokens: data.eval_count || 0,
+                totalTokens: (data.prompt_eval_count || 0) + (data.eval_count || 0)
+            },
+            raw: data
+        };
     } catch (error) {
-      await this.logger.error('Ollama completion failed', { error });
-      throw error;
+        await this.logger.error('Ollama request failed', { error });
+        throw error;
     }
   }
 
   isInitialized(): boolean {
-    return this.endpoint !== null;
+    return this.initialized;
   }
 
   getCurrentModel(): string {

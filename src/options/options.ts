@@ -268,13 +268,9 @@ class OptionsManager {
         
         logsOutput.innerHTML = filteredLogs.map(log => {
             const timestamp = new Date(log.timestamp).toLocaleTimeString();
-            const details = log.details ? `\n${JSON.stringify(log.details, null, 2)}` : '';
+            const details = log.details ? ` ${JSON.stringify(log.details)}` : '';
             
-            return `<div class="log-entry ${log.level}">
-                <span class="log-timestamp">[${timestamp}]</span>
-                <span class="log-level">[${log.level.toUpperCase()}]</span>
-                <span class="log-message">${log.message}${details}</span>
-            </div>`;
+            return `<div class="log-entry ${log.level}"><span class="log-timestamp">[${timestamp}]</span> <span class="log-level">[${log.level.toUpperCase()}]</span> <span class="log-message">${log.message}${details}</span></div>`;
         }).join('');
 
         // Scroll to bottom if already at bottom
