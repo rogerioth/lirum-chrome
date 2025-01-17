@@ -12,19 +12,68 @@ export class DeepseekProvider implements LLMProvider {
   private readonly API_URL = 'https://api.deepseek.com/v1/chat/completions';
   private readonly API_KEY_PATTERN = /^.{5,}$/;
 
+  private readonly STORAGE_KEY = 'deepseek_provider_state';
+  private endpoint: string = 'https://api.deepseek.com';
+
   constructor() {
     this.currentModel = this.defaultModel;
     this.logger = Logger.getInstance();
+    this.loadState();
   }
 
-  async initialize(apiKey: string): Promise<void> {
-    if (!this.validateApiKey(apiKey)) {
+  private async loadState(): Promise<void> {
+    try {
+      const data = await chrome.storage.local.get(this.STORAGE_KEY);
+      const state = data[this.STORAGE_KEY];
+      if (state) {
+        this.apiKey = state.apiKey;
+        this.endpoint = state.endpoint || this.endpoint;
+        this.currentModel = state.currentModel || this.defaultModel;
+        await this.logger.debug('Deepseek provider state loaded', {
+          hasApiKey: Boolean(this.apiKey),
+          endpoint: this.endpoint,
+          currentModel: this.currentModel
+        });
+      }
+    } catch (error) {
+      await this.logger.error('Failed to load Deepseek provider state', { error });
+    }
+  }
+
+  private async saveState(): Promise<void> {
+    try {
+      await chrome.storage.local.set({
+        [this.STORAGE_KEY]: {
+          apiKey: this.apiKey,
+          endpoint: this.endpoint,
+          currentModel: this.currentModel
+        }
+      });
+      await this.logger.debug('Deepseek provider state saved', {
+        hasApiKey: Boolean(this.apiKey),
+        endpoint: this.endpoint,
+        currentModel: this.currentModel
+      });
+    } catch (error) {
+      await this.logger.error('Failed to save Deepseek provider state', { error });
+    }
+  }
+
+  async initialize(apiKey?: string, endpoint?: string): Promise<void> {
+    if (!apiKey || !this.validateApiKey(apiKey)) {
       throw new Error('Invalid API key format. Key should be at least 5 characters long.');
+    }
+
+    if (endpoint) {
+      if (!this.validateEndpoint(endpoint)) {
+        throw new Error('Invalid endpoint URL format. Please provide a valid HTTP/HTTPS URL.');
+      }
+      this.endpoint = endpoint;
     }
 
     // Test the API key with a simple models list request
     try {
-      const response = await fetch('https://api.deepseek.com/v1/models', {
+      const response = await fetch(`${this.endpoint}/v1/models`, {
         headers: {
           'Authorization': `Bearer ${apiKey}`
         }
@@ -36,6 +85,7 @@ export class DeepseekProvider implements LLMProvider {
       }
 
       this.apiKey = apiKey;
+      await this.saveState();
       await this.logger.info('Deepseek provider initialized');
     } catch (error) {
       if (error instanceof Error) {
@@ -47,7 +97,11 @@ export class DeepseekProvider implements LLMProvider {
 
   async complete(prompt: string, options: LLMOptions = {}): Promise<LLMResponse> {
     if (!this.isInitialized()) {
-      throw new Error('Deepseek provider not initialized. Please provide a valid API key.');
+      // Try to load state one more time
+      await this.loadState();
+      if (!this.isInitialized()) {
+        throw new Error('Deepseek provider not initialized. Please provide a valid API key.');
+      }
     }
 
     const requestBody = {
@@ -60,7 +114,7 @@ export class DeepseekProvider implements LLMProvider {
     };
 
     try {
-      const response = await fetch(this.API_URL, {
+      const response = await fetch(`${this.endpoint}/v1/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -102,7 +156,7 @@ export class DeepseekProvider implements LLMProvider {
   }
 
   isInitialized(): boolean {
-    return this.apiKey !== null;
+    return Boolean(this.apiKey);
   }
 
   getCurrentModel(): string {
@@ -114,9 +168,14 @@ export class DeepseekProvider implements LLMProvider {
       throw new Error(`Invalid model. Available models: ${this.availableModels.join(', ')}`);
     }
     this.currentModel = model;
+    this.saveState();
   }
 
   validateApiKey(apiKey: string): boolean {
     return this.API_KEY_PATTERN.test(apiKey);
   }
-} 
+
+  validateEndpoint(endpoint: string): boolean {
+    return /^https?:\/\/[^\s/$.?#].[^\s]*$/i.test(endpoint);
+  }
+}
