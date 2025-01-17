@@ -281,3 +281,57 @@ input:focus {
     color: var(--primary-hover);
     text-decoration: underline;
 }
+
+/* Onboarding Message */
+.onboarding-message {
+    padding: 16px 0;
+}
+
+.onboarding-message > p {
+    color: var(--text-primary);
+    font-size: 0.875rem;
+    line-height: 1.5;
+    margin-bottom: 16px;
+}
+
+.steps {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 24px;
+}
+
+.step {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+}
+
+.step-number {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    background-color: var(--purple-50);
+    color: var(--purple-700);
+    border-radius: 12px;
+    font-size: 0.875rem;
+    font-weight: 500;
+    flex-shrink: 0;
+}
+
+.step p {
+    margin: 0;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    color: var(--text-secondary);
+    padding-top: 2px;
+}
+
+/* Update header styles for onboarding */
+.header h1 {
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}

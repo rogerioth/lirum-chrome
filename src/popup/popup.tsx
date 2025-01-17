@@ -20,6 +20,7 @@ interface PopupState {
     error: string | null;
     content: string | null;
     response: string | null;
+    isChromeUrl: boolean;
 }
 
 const DEFAULT_COMMANDS = [
@@ -39,12 +40,32 @@ const Popup: React.FC = () => {
         isLoading: true,
         error: null,
         content: null,
-        response: null
+        response: null,
+        isChromeUrl: false
     });
+
+    const handleChromeUrl = async () => {
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        return tab.url?.startsWith('chrome://');
+    };
 
     useEffect(() => {
         const initialize = async () => {
             try {
+                // Check if we're on a chrome:// URL
+                const isChromeUrl = await handleChromeUrl();
+                if (isChromeUrl) {
+                    setState(prev => ({
+                        ...prev,
+                        isLoading: false,
+                        error: null,
+                        content: null,
+                        response: null,
+                        isChromeUrl: true
+                    }));
+                    return;
+                }
+
                 // Load providers from storage
                 const data = await chrome.storage.sync.get('providers');
                 const storedProviders = data.providers || [];
@@ -130,7 +151,8 @@ const Popup: React.FC = () => {
                 setState(prev => ({
                     ...prev,
                     isLoading: false,
-                    error: errorMessage
+                    error: errorMessage,
+                    isChromeUrl: false
                 }));
             }
         };
@@ -151,7 +173,8 @@ const Popup: React.FC = () => {
                 isLoading: false,
                 error: null,
                 content: contentResponse.content,
-                response: null
+                response: null,
+                isChromeUrl: false
             });
         };
 
@@ -161,7 +184,13 @@ const Popup: React.FC = () => {
     const handleProcess = async () => {
         if (!state.content || !state.selectedProvider) return;
 
-        setState(prev => ({ ...prev, isLoading: true, error: null }));
+        setState(prev => ({ 
+            ...prev, 
+            isLoading: true, 
+            error: null, 
+            response: null, 
+            isChromeUrl: false 
+        }));
 
         try {
             const response = await chrome.runtime.sendMessage({
@@ -179,7 +208,8 @@ const Popup: React.FC = () => {
             setState(prev => ({
                 ...prev,
                 isLoading: false,
-                response: response.content || ''
+                response: response.content || '',
+                isChromeUrl: false
             }));
 
         } catch (error) {
@@ -188,7 +218,8 @@ const Popup: React.FC = () => {
             setState(prev => ({
                 ...prev,
                 isLoading: false,
-                error: errorMessage
+                error: errorMessage,
+                isChromeUrl: false
             }));
         }
     };
@@ -205,6 +236,45 @@ const Popup: React.FC = () => {
                     <h1>Lirum Chrome LLMs</h1>
                 </div>
                 <div className="loading-bar" />
+            </div>
+        );
+    }
+
+    if (state.isChromeUrl) {
+        return (
+            <div className="popup-container">
+                <div className="header">
+                    <img src="../assets/logo.png" alt="Lirum Logo" className="logo" />
+                    <h1>Welcome to Lirum</h1>
+                </div>
+                
+                <div className="onboarding-message">
+                    <p>👋 Hi! Lirum can't work directly on Chrome system pages, but here's how to get started:</p>
+                    
+                    <div className="steps">
+                        <div className="step">
+                            <span className="step-number">1</span>
+                            <p>Navigate to any website (e.g., news article, blog post, documentation)</p>
+                        </div>
+                        <div className="step">
+                            <span className="step-number">2</span>
+                            <p>(Optional) Select some text on the page</p>
+                        </div>
+                        <div className="step">
+                            <span className="step-number">3</span>
+                            <p>Open the Lirum extension and choose your action!</p>
+                        </div>
+                    </div>
+
+                    <div className="button-group">
+                        <button
+                            onClick={handleSettings}
+                            className="secondary"
+                        >
+                            Configure Settings
+                        </button>
+                    </div>
+                </div>
             </div>
         );
     }
@@ -231,7 +301,7 @@ const Popup: React.FC = () => {
             <div className="provider-section">
                 <select
                     value={state.selectedProvider}
-                    onChange={(e) => setState({ ...state, selectedProvider: e.target.value })}
+                    onChange={(e) => setState({ ...state, selectedProvider: e.target.value, isChromeUrl: false })}
                     disabled={state.isLoading}
                 >
                     {state.providers.map((provider) => (
@@ -245,7 +315,7 @@ const Popup: React.FC = () => {
             <div className="command-section">
                 <select
                     value={state.command}
-                    onChange={(e) => setState({ ...state, command: e.target.value })}
+                    onChange={(e) => setState({ ...state, command: e.target.value, isChromeUrl: false })}
                     disabled={state.isLoading}
                 >
                     {DEFAULT_COMMANDS.map((cmd) => (
