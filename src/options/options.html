@@ -71,7 +71,22 @@
         <div class="section-header">
           <h1>Commands</h1>
           <div class="header-actions">
-            <button id="add-command" class="button primary">Add Command</button>
+            <button id="import-commands" class="button secondary" title="Import...">
+              <i class="fa-solid fa-file-import"></i>
+              Import
+            </button>
+            <button id="export-commands" class="button secondary" title="Export...">
+              <i class="fa-solid fa-file-export"></i>
+              Export
+            </button>
+            <button id="reset-commands" class="button danger" title="Reset...">
+              <i class="fa-solid fa-rotate-left"></i>
+              Reset
+            </button>
+            <button id="add-command" class="button primary">
+              <i class="fa-solid fa-plus"></i>
+              Add Command
+            </button>
           </div>
         </div>
 
@@ -79,8 +94,14 @@
           <div class="commands-list-container">
             <select id="commands-list" size="6" class="commands-list"></select>
             <div class="command-actions">
-              <button id="edit-command" class="button secondary" disabled>Edit</button>
-              <button id="remove-command" class="button danger" disabled>Remove</button>
+              <button id="edit-command" class="button secondary" disabled>
+                <i class="fa-solid fa-pen-to-square"></i>
+                Edit
+              </button>
+              <button id="remove-command" class="button danger" disabled>
+                <i class="fa-solid fa-trash"></i>
+                Remove
+              </button>
             </div>
           </div>
         </div>
@@ -179,6 +200,33 @@
           <div class="spinner"></div>
         </button>
         <button id="modal-cancel" class="button">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Command Modal -->
+  <div id="command-modal" class="modal" style="display: none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <div class="modal-header-content">
+          <i class="fa-solid fa-terminal modal-icon"></i>
+          <h2 id="command-modal-title">Add Command</h2>
+        </div>
+        <button class="close-button">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="command-name">Name</label>
+          <input type="text" id="command-name" placeholder="e.g., Summarize">
+        </div>
+        <div class="form-group">
+          <label for="command-prompt">Prompt</label>
+          <textarea id="command-prompt" rows="4" placeholder="e.g., Please summarize the following content:"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="save-command" class="button primary">Save</button>
+        <button class="button secondary close-button">Cancel</button>
       </div>
     </div>
   </div>

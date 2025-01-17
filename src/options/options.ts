@@ -15,15 +15,15 @@ const PROVIDER_TYPES: ProviderType[] = LLMProviderFactory.getProviderTypes();
 
 interface Command {
     name: string;
-    description: string;
+    prompt: string;
 }
 
 const DEFAULT_COMMANDS: Command[] = [
-    { name: 'Summarize', description: 'Create a summary of the page content' },
-    { name: 'Paraphrase', description: 'Rewrite the content in different words' },
-    { name: 'Bullet Points', description: 'Convert content into bullet points' },
-    { name: 'Translate', description: 'Translate the content to another language' },
-    { name: 'Analyze Tone', description: 'Analyze the tone of the content' }
+    { name: 'Summarize', prompt: 'Please provide a concise summary of the following content:' },
+    { name: 'Paraphrase', prompt: 'Please rewrite the following content in different words while maintaining its meaning:' },
+    { name: 'Bullet Points', prompt: 'Please convert the following content into clear, organized bullet points:' },
+    { name: 'Translate', prompt: 'Please translate the following content to English (or specify target language):' },
+    { name: 'Analyze Tone', prompt: 'Please analyze the tone and emotional content of the following text:' }
 ];
 
 // Add navigation handling
@@ -58,6 +58,7 @@ class OptionsManager {
     private providers: LLMProvider[] = [];
     private commands: Command[] = [];
     private selectedProviderIndex: number = -1;
+    private selectedCommandIndex: number = -1;
     private readonly logger: Logger;
 
     constructor() {
@@ -265,6 +266,202 @@ class OptionsManager {
 
         // Initialize logs display
         this.initializeLogs();
+
+        // Command event listeners
+        document.getElementById('add-command')?.addEventListener('click', () => this.showCommandModal());
+        document.getElementById('edit-command')?.addEventListener('click', () => this.showCommandModal(true));
+        document.getElementById('remove-command')?.addEventListener('click', () => this.removeCommand());
+        document.getElementById('import-commands')?.addEventListener('click', () => this.importCommands());
+        document.getElementById('export-commands')?.addEventListener('click', () => this.exportCommands());
+        document.getElementById('reset-commands')?.addEventListener('click', () => this.resetCommands());
+        document.getElementById('save-command')?.addEventListener('click', () => this.saveCommand());
+        
+        const commandsList = document.getElementById('commands-list') as HTMLSelectElement;
+        commandsList?.addEventListener('change', () => {
+            this.selectedCommandIndex = commandsList.selectedIndex;
+            this.updateCommandButtons();
+        });
+
+        // Close modal buttons
+        document.querySelectorAll('.close-button').forEach(button => {
+            button.addEventListener('click', () => {
+                document.querySelectorAll('.modal').forEach(modal => {
+                    if (modal instanceof HTMLElement) {
+                        modal.style.display = 'none';
+                    }
+                });
+            });
+        });
+    }
+
+    private async loadSettings(): Promise<void> {
+        try {
+            const settings = await chrome.storage.sync.get(['providers', 'commands']);
+            
+            if (settings.providers) {
+                this.providers = settings.providers;
+                await this.logger.info('Providers loaded', { count: this.providers.length });
+            }
+
+            if (settings.commands) {
+                this.commands = settings.commands;
+            } else {
+                this.commands = [...DEFAULT_COMMANDS];
+            }
+            await this.logger.info('Commands loaded', { count: this.commands.length });
+            
+            this.renderProviders();
+            this.updateCommandsList();
+        } catch (error) {
+            await this.logger.error('Failed to load settings', { error });
+        }
+    }
+
+    private async saveSettings(): Promise<void> {
+        try {
+            await chrome.storage.sync.set({
+                providers: this.providers,
+                commands: this.commands
+            });
+            this.showMessage('Settings saved successfully!');
+        } catch (error) {
+            this.showMessage('Error saving settings!', true);
+            this.logger.error('Error saving settings:', { error });
+        }
+    }
+
+    private updateCommandsList(): void {
+        const commandsList = document.getElementById('commands-list') as HTMLSelectElement;
+        commandsList.innerHTML = '';
+        
+        this.commands.forEach(command => {
+            const option = document.createElement('option');
+            option.textContent = command.name;
+            option.title = command.prompt;
+            commandsList.appendChild(option);
+        });
+        
+        this.updateCommandButtons();
+    }
+
+    private updateCommandButtons(): void {
+        const editButton = document.getElementById('edit-command') as HTMLButtonElement;
+        const removeButton = document.getElementById('remove-command') as HTMLButtonElement;
+        const hasSelection = this.selectedCommandIndex !== -1;
+        
+        editButton.disabled = !hasSelection;
+        removeButton.disabled = !hasSelection;
+    }
+
+    private showCommandModal(isEdit: boolean = false): void {
+        const modal = document.getElementById('command-modal') as HTMLElement;
+        const title = document.getElementById('command-modal-title') as HTMLElement;
+        const nameInput = document.getElementById('command-name') as HTMLInputElement;
+        const promptInput = document.getElementById('command-prompt') as HTMLTextAreaElement;
+        
+        title.textContent = isEdit ? 'Edit Command' : 'Add Command';
+        
+        if (isEdit && this.selectedCommandIndex !== -1) {
+            const command = this.commands[this.selectedCommandIndex];
+            nameInput.value = command.name;
+            promptInput.value = command.prompt;
+        } else {
+            nameInput.value = '';
+            promptInput.value = '';
+        }
+        
+        modal.style.display = 'block';
+    }
+
+    private async saveCommand(): Promise<void> {
+        const nameInput = document.getElementById('command-name') as HTMLInputElement;
+        const promptInput = document.getElementById('command-prompt') as HTMLTextAreaElement;
+        
+        if (!nameInput.value || !promptInput.value) {
+            alert('Please fill in all fields');
+            return;
+        }
+        
+        const command: Command = {
+            name: nameInput.value,
+            prompt: promptInput.value
+        };
+        
+        if (this.selectedCommandIndex !== -1) {
+            // Edit existing command
+            this.commands[this.selectedCommandIndex] = command;
+        } else {
+            // Add new command
+            this.commands.push(command);
+        }
+        
+        await this.saveSettings();
+        this.updateCommandsList();
+        
+        const modal = document.getElementById('command-modal') as HTMLElement;
+        modal.style.display = 'none';
+    }
+
+    private async removeCommand(): Promise<void> {
+        if (this.selectedCommandIndex === -1) return;
+        
+        if (confirm('Are you sure you want to remove this command?')) {
+            this.commands.splice(this.selectedCommandIndex, 1);
+            this.selectedCommandIndex = -1;
+            await this.saveSettings();
+            this.updateCommandsList();
+        }
+    }
+
+    private async resetCommands(): Promise<void> {
+        if (confirm('Are you sure that you want to reset all commands to the built-in ones?')) {
+            this.commands = [...DEFAULT_COMMANDS];
+            this.selectedCommandIndex = -1;
+            await this.saveSettings();
+            this.updateCommandsList();
+        }
+    }
+
+    private async importCommands(): Promise<void> {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.json';
+        
+        input.onchange = async (e) => {
+            const file = (e.target as HTMLInputElement).files?.[0];
+            if (!file) return;
+            
+            try {
+                const text = await file.text();
+                const commands = JSON.parse(text);
+                
+                if (!Array.isArray(commands) || !commands.every(cmd => cmd.name && cmd.prompt)) {
+                    throw new Error('Invalid commands format');
+                }
+                
+                this.commands = commands;
+                this.selectedCommandIndex = -1;
+                await this.saveSettings();
+                this.updateCommandsList();
+            } catch (error) {
+                alert('Failed to import commands: ' + (error instanceof Error ? error.message : 'Invalid file'));
+            }
+        };
+        
+        input.click();
+    }
+
+    private exportCommands(): void {
+        const data = JSON.stringify(this.commands, null, 2);
+        const blob = new Blob([data], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'lirum-commands.json';
+        a.click();
+        
+        URL.revokeObjectURL(url);
     }
 
     private async initializeLogs(): Promise<void> {
@@ -336,27 +533,6 @@ class OptionsManager {
         } catch (error) {
             this.showMessage('Failed to copy logs to clipboard', true);
             await this.logger.error('Failed to copy logs', { error });
-        }
-    }
-
-    private async loadSettings(): Promise<void> {
-        try {
-            const settings = await chrome.storage.sync.get(['providers', 'commands']);
-            
-            if (settings.providers) {
-                this.providers = settings.providers;
-                await this.logger.info('Providers loaded', { count: this.providers.length });
-            }
-
-            if (settings.commands) {
-                this.commands = settings.commands;
-                await this.logger.info('Commands loaded', { count: this.commands.length });
-            }
-            
-            this.renderProviders();
-            this.renderCommands();
-        } catch (error) {
-            await this.logger.error('Failed to load settings', { error });
         }
     }
 
@@ -512,62 +688,6 @@ class OptionsManager {
         }
     }
 
-    private addNewCommand(): void {
-        const commandsList = document.getElementById('commands-list');
-        if (!commandsList) return;
-
-        const commandDiv = document.createElement('div');
-        commandDiv.className = 'provider-section';
-        commandDiv.innerHTML = `
-            <input type="text" placeholder="Command name" class="api-key-input">
-            <input type="text" placeholder="Command description" class="api-key-input">
-            <button class="save-button">Remove</button>
-        `;
-
-        const removeBtn = commandDiv.querySelector('button');
-        removeBtn?.addEventListener('click', () => {
-            commandDiv.remove();
-            this.updateCommandsList();
-        });
-
-        commandsList.appendChild(commandDiv);
-    }
-
-    private updateCommandsList(): void {
-        const commandDivs = document.querySelectorAll('#commands-list > div');
-        this.commands = Array.from(commandDivs).map(div => {
-            const inputs = div.querySelectorAll('input');
-            return {
-                name: inputs[0].value,
-                description: inputs[1].value
-            };
-        });
-    }
-
-    private renderCommands(): void {
-        const commandsList = document.getElementById('commands-list');
-        if (!commandsList) return;
-
-        commandsList.innerHTML = '';
-        this.commands.forEach(command => {
-            const commandDiv = document.createElement('div');
-            commandDiv.className = 'provider-section';
-            commandDiv.innerHTML = `
-                <input type="text" value="${command.name}" placeholder="Command name" class="api-key-input">
-                <input type="text" value="${command.description}" placeholder="Command description" class="api-key-input">
-                <button class="save-button">Remove</button>
-            `;
-
-            const removeBtn = commandDiv.querySelector('button');
-            removeBtn?.addEventListener('click', () => {
-                commandDiv.remove();
-                this.updateCommandsList();
-            });
-
-            commandsList.appendChild(commandDiv);
-        });
-    }
-
     private editSelectedProvider(): void {
         const select = document.getElementById('providers-list') as HTMLSelectElement;
         if (!select || select.selectedIndex === -1) return;
@@ -587,19 +707,6 @@ class OptionsManager {
         
         this.renderProviders();
         this.saveSettings();
-    }
-
-    private async saveSettings(): Promise<void> {
-        try {
-            await chrome.storage.sync.set({
-                providers: this.providers,
-                commands: this.commands
-            });
-            this.showMessage('Settings saved successfully!');
-        } catch (error) {
-            this.showMessage('Error saving settings!', true);
-            console.error('Error saving settings:', error);
-        }
     }
 
     private updateProviderFields(): void {
