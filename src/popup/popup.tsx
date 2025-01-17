@@ -262,9 +262,14 @@ const Popup: React.FC = () => {
             <button 
                 onClick={handleProcess}
                 disabled={state.isLoading || !state.content}
-                className="submit-button"
+                className={`submit-button ${state.isLoading ? 'loading' : ''}`}
             >
-                {state.isLoading ? 'Processing...' : 'Process'}
+                {state.isLoading ? (
+                    <span>
+                        <span className="loading-spinner"></span>
+                        Processing...
+                    </span>
+                ) : 'Process'}
             </button>
 
             <div className="settings-link">

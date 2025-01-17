@@ -178,8 +178,12 @@ Please ${command.toLowerCase()} the above content.
         await logger.debug('Sending prompt to provider', { 
             requestId,
             provider,
-            promptLength: prompt.length,
-            promptPreview: prompt.slice(0, 100)
+            prompt,
+            model: llmProvider.getCurrentModel(),
+            options: {
+                temperature: 0.7,
+                maxTokens: 1000
+            }
         });
 
         const response = await llmProvider.complete(prompt, {
@@ -190,10 +194,12 @@ Please ${command.toLowerCase()} the above content.
         await logger.info('Received response from provider', {
             requestId,
             provider,
-            responseLength: response.content.length,
-            model: response.model,
-            usage: response.usage,
-            responsePreview: response.content.slice(0, 100)
+            response: {
+                content: response.content,
+                model: response.model,
+                usage: response.usage,
+                raw: response.raw
+            }
         });
 
         return { content: response.content };
