@@ -20,6 +20,17 @@
   --gray-700: #374151;
   --gray-800: #1f2937;
   --gray-900: #111827;
+  
+  --primary-color: #6200ee;
+  --primary-hover: #3700b3;
+  --border-color: #e0e0e0;
+  --background-light: #f5f0ff;
+  --text-primary: #1d1b1e;
+  --text-secondary: #49454f;
+  --error-bg: #fde7e9;
+  --error-text: #b71c1c;
+  --border-radius: 8px;
+  --spacing-unit: 16px;
 }
 
 * {
@@ -465,4 +476,4 @@ body {
 .log-entry.info .log-level { color: var(--purple-600); }
 .log-entry.debug .log-level { color: var(--gray-600); }
 .log-entry.error .log-level { color: #dc2626; }
-.log-entry.llm .log-level { color: #059669; } 
+.log-entry.llm .log-level { color: #059669; }

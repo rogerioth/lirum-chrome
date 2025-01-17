@@ -193,11 +193,18 @@ const Popup: React.FC = () => {
         }
     };
 
+    const handleSettings = () => {
+        chrome.runtime.openOptionsPage();
+    };
+
     if (state.isLoading) {
         return (
             <div className="popup-container">
-                <h1>Lirum Chrome LLMs</h1>
-                <div className="loading">Loading...</div>
+                <div className="header">
+                    <img src="../assets/logo.png" alt="Lirum Logo" className="logo" />
+                    <h1>Lirum Chrome LLMs</h1>
+                </div>
+                <div className="loading-bar" />
             </div>
         );
     }
@@ -205,29 +212,31 @@ const Popup: React.FC = () => {
     if (state.error) {
         return (
             <div className="popup-container">
-                <h1>Lirum Chrome LLMs</h1>
-                <div className="error-message">{state.error}</div>
-                <div className="settings-link">
-                    <a href="#" onClick={() => chrome.runtime.openOptionsPage()}>
-                        Open Settings
-                    </a>
+                <div className="header">
+                    <img src="../assets/logo.png" alt="Lirum Logo" className="logo" />
+                    <h1>Lirum Chrome LLMs</h1>
                 </div>
+                <div className="error-message">{state.error}</div>
             </div>
         );
     }
 
     return (
         <div className="popup-container">
-            <h1>Lirum Chrome LLMs</h1>
+            <div className="header">
+                <img src="../assets/logo.png" alt="Lirum Logo" className="logo" />
+                <h1>Lirum Chrome LLMs</h1>
+            </div>
             
             <div className="provider-section">
-                <select 
+                <select
                     value={state.selectedProvider}
-                    onChange={e => setState(prev => ({ ...prev, selectedProvider: e.target.value }))}
+                    onChange={(e) => setState({ ...state, selectedProvider: e.target.value })}
+                    disabled={state.isLoading}
                 >
-                    {state.providers.map(provider => (
+                    {state.providers.map((provider) => (
                         <option key={provider.type} value={provider.type}>
-                            {provider.name || provider.type}
+                            {provider.name}
                         </option>
                     ))}
                 </select>
@@ -236,47 +245,53 @@ const Popup: React.FC = () => {
             <div className="command-section">
                 <select
                     value={state.command}
-                    onChange={e => setState(prev => ({ ...prev, command: e.target.value }))}
+                    onChange={(e) => setState({ ...state, command: e.target.value })}
+                    disabled={state.isLoading}
                 >
-                    {DEFAULT_COMMANDS.map(cmd => (
+                    {DEFAULT_COMMANDS.map((cmd) => (
                         <option key={cmd} value={cmd}>{cmd}</option>
                     ))}
                 </select>
             </div>
 
-            {state.response ? (
-                <div className="response-section">
-                    <pre>{state.response}</pre>
-                </div>
-            ) : state.content ? (
-                <div className="content-preview">
-                    <p>Content preview:</p>
-                    <p className="content-snippet">
-                        {state.content.length > 100 
-                            ? `${state.content.slice(0, 100)}...` 
-                            : state.content}
-                    </p>
-                </div>
-            ) : null}
+            {state.isLoading && <div className="loading-bar" />}
 
-            <button 
-                onClick={handleProcess}
-                disabled={state.isLoading || !state.content}
-                className={`submit-button ${state.isLoading ? 'loading' : ''}`}
-            >
-                {state.isLoading ? (
-                    <span>
-                        <span className="loading-spinner"></span>
-                        Processing...
-                    </span>
-                ) : 'Process'}
-            </button>
-
-            <div className="settings-link">
-                <a href="#" onClick={() => chrome.runtime.openOptionsPage()}>
-                    Settings
-                </a>
+            <div className="preview-section">
+                {state.content && (
+                    <div className="preview">
+                        <h2>Input</h2>
+                        <p>{state.content}</p>
+                    </div>
+                )}
+                
+                {state.response && (
+                    <div className="response">
+                        <h2>Output</h2>
+                        <p>{state.response}</p>
+                    </div>
+                )}
             </div>
+
+            <div className="button-group">
+                <button
+                    onClick={handleProcess}
+                    disabled={!state.content || state.isLoading}
+                >
+                    Process
+                </button>
+                <button
+                    onClick={handleSettings}
+                    disabled={state.isLoading}
+                >
+                    Settings
+                </button>
+            </div>
+
+            {state.error && (
+                <div className="error-message">
+                    {state.error}
+                </div>
+            )}
         </div>
     );
 };
