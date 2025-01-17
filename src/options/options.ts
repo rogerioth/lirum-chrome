@@ -250,6 +250,11 @@ class OptionsManager {
             await this.exportLogs();
         });
 
+        document.getElementById('copy-logs')?.addEventListener('click', async () => {
+            await this.logger.info('Copying logs to clipboard');
+            await this.copyLogs();
+        });
+
         // Log filters
         const logFilters = document.querySelectorAll('.log-filter input');
         logFilters.forEach(filter => {
@@ -321,6 +326,17 @@ class OptionsManager {
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
+    }
+
+    private async copyLogs(): Promise<void> {
+        try {
+            const logsJson = await this.logger.exportLogs();
+            await navigator.clipboard.writeText(logsJson);
+            this.showMessage('Logs copied to clipboard', false);
+        } catch (error) {
+            this.showMessage('Failed to copy logs to clipboard', true);
+            await this.logger.error('Failed to copy logs', { error });
+        }
     }
 
     private async loadSettings(): Promise<void> {
@@ -675,4 +691,4 @@ class OptionsManager {
 // Initialize options when the DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
     new OptionsManager();
-}); 
+});

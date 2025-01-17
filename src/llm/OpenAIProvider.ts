@@ -16,10 +16,46 @@ export class OpenAIProvider implements LLMProvider {
   private readonly logger: Logger;
   private readonly API_URL = 'https://api.openai.com/v1/chat/completions';
   private readonly API_KEY_PATTERN = /^.{5,}$/;
+  private readonly STORAGE_KEY = 'openai_provider_state';
 
   constructor() {
     this.currentModel = this.defaultModel;
     this.logger = Logger.getInstance();
+    this.loadState();
+  }
+
+  private async loadState(): Promise<void> {
+    try {
+      const data = await chrome.storage.local.get(this.STORAGE_KEY);
+      const state = data[this.STORAGE_KEY];
+      if (state) {
+        this.apiKey = state.apiKey;
+        this.currentModel = state.currentModel || this.defaultModel;
+        await this.logger.debug('OpenAI provider state loaded', {
+          hasApiKey: Boolean(this.apiKey),
+          currentModel: this.currentModel
+        });
+      }
+    } catch (error) {
+      await this.logger.error('Failed to load OpenAI provider state', { error });
+    }
+  }
+
+  private async saveState(): Promise<void> {
+    try {
+      await chrome.storage.local.set({
+        [this.STORAGE_KEY]: {
+          apiKey: this.apiKey,
+          currentModel: this.currentModel
+        }
+      });
+      await this.logger.debug('OpenAI provider state saved', {
+        hasApiKey: Boolean(this.apiKey),
+        currentModel: this.currentModel
+      });
+    } catch (error) {
+      await this.logger.error('Failed to save OpenAI provider state', { error });
+    }
   }
 
   async initialize(apiKey?: string, endpoint?: string): Promise<void> {
@@ -41,6 +77,7 @@ export class OpenAIProvider implements LLMProvider {
       }
 
       this.apiKey = apiKey;
+      await this.saveState();
       await this.logger.info('OpenAI provider initialized');
     } catch (error) {
       if (error instanceof Error) {
@@ -52,7 +89,11 @@ export class OpenAIProvider implements LLMProvider {
 
   async complete(prompt: string, options: LLMOptions = {}): Promise<LLMResponse> {
     if (!this.isInitialized()) {
-      throw new Error('OpenAI provider not initialized. Please provide a valid API key.');
+      // Try to load state one more time
+      await this.loadState();
+      if (!this.isInitialized()) {
+        throw new Error('OpenAI provider not initialized. Please provide a valid API key.');
+      }
     }
 
     const requestBody = {
@@ -121,9 +162,12 @@ export class OpenAIProvider implements LLMProvider {
       throw new Error(`Invalid model. Available models: ${this.availableModels.join(', ')}`);
     }
     this.currentModel = model;
+    this.saveState().catch(error => {
+      this.logger.error('Failed to save model change', { error });
+    });
   }
 
   validateApiKey(apiKey: string): boolean {
     return this.API_KEY_PATTERN.test(apiKey);
   }
-} 
+}

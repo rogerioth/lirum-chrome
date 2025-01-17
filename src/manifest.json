@@ -2,16 +2,26 @@
   "manifest_version": 3,
   "name": "Lirum Chrome LLMs",
   "version": "1.0.0",
-  "description": "Seamlessly integrate various Large Language Models into your browsing experience",
+  "description": "Use LLMs to analyze web content",
   "permissions": [
     "storage",
     "activeTab",
-    "scripting"
+    "scripting",
+    "tabs"
   ],
   "host_permissions": [
-    "http://*/",
-    "https://*/",
-    "http://192.168.1.110/*"
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background/background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content/content.js"],
+      "run_at": "document_end"
+    }
   ],
   "action": {
     "default_popup": "popup/popup.html",
@@ -22,16 +32,6 @@
     }
   },
   "options_page": "options/options.html",
-  "background": {
-    "service_worker": "background/background.js",
-    "type": "module"
-  },
-  "content_scripts": [
-    {
-      "matches": ["<all_urls>"],
-      "js": ["content/content.js"]
-    }
-  ],
   "icons": {
     "16": "assets/icon16.png",
     "48": "assets/icon48.png",

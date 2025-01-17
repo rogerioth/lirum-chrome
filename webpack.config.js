@@ -10,19 +10,34 @@ export default {
   devtool: 'source-map',
   entry: {
     options: ['./src/options/options.ts', './src/styles/options.css'],
-    popup: './src/popup/popup.tsx',
+    popup: ['./src/popup/popup.tsx', './src/styles/popup.css'],
     background: './src/background/background.ts',
     content: './src/content/content.ts',
   },
   output: {
     path: path.resolve(__dirname, 'dist'),
     filename: '[name]/[name].js',
+    clean: true
+  },
+  experiments: {
+    topLevelAwait: true
   },
   module: {
     rules: [
       {
         test: /\.tsx?$/,
-        use: 'ts-loader',
+        use: [
+          {
+            loader: 'ts-loader',
+            options: {
+              compilerOptions: {
+                module: 'esnext',
+                moduleResolution: 'node',
+                jsx: 'react-jsx'
+              }
+            }
+          }
+        ],
         exclude: /node_modules/,
       },
       {
@@ -32,7 +47,15 @@ export default {
     ],
   },
   resolve: {
-    extensions: ['.tsx', '.ts', '.js', '.css'],
+    extensions: ['.tsx', '.ts', '.js', '.jsx', '.css'],
+    alias: {
+      'react': path.resolve('./node_modules/react'),
+      'react-dom': path.resolve('./node_modules/react-dom')
+    },
+    fallback: {
+      "path": false,
+      "fs": false
+    }
   },
   plugins: [
     new CopyPlugin({

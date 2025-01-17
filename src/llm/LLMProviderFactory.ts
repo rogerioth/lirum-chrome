@@ -32,13 +32,30 @@ export class LLMProviderFactory {
         lmstudio: 'http://localhost:1234'
     };
 
+    // Cache for provider instances
+    private static readonly providerInstances: Record<ProviderType, LLMProvider | null> = {
+        openai: null,
+        anthropic: null,
+        ollama: null,
+        deepseek: null,
+        lmstudio: null
+    };
+
     private constructor() {
         // Private constructor to prevent instantiation
     }
 
     static getProvider(type: ProviderType): LLMProvider {
+        // Return cached instance if it exists
+        if (this.providerInstances[type]) {
+            return this.providerInstances[type]!;
+        }
+
+        // Create new instance and cache it
         const Provider = this.providers[type];
-        return new Provider();
+        const instance = new Provider();
+        this.providerInstances[type] = instance;
+        return instance;
     }
 
     static getProviderTypes(): ProviderType[] {
@@ -64,4 +81,16 @@ export class LLMProviderFactory {
     static getDefaultEndpoint(type: ProviderType): string {
         return this.defaultEndpoints[type];
     }
-} 
+
+    // Clear the cached instance of a specific provider
+    static clearProvider(type: ProviderType): void {
+        this.providerInstances[type] = null;
+    }
+
+    // Clear all cached provider instances
+    static clearAllProviders(): void {
+        Object.keys(this.providerInstances).forEach(type => {
+            this.providerInstances[type as ProviderType] = null;
+        });
+    }
+}

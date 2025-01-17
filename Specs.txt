@@ -5,6 +5,11 @@ Lirum Chrome LLMs - specs.txt
 -----------
 Lirum Chrome LLMs is a Google Chrome extension designed to seamlessly integrate various Large Language Models (LLMs)—such as OpenAI, Anthropic, and Deepseek—into your browsing experience. Once installed, users can invoke the extension on any webpage and send the page content along with a customizable command (e.g., "Summarize") to the LLM of their choice. The extension also provides secure storage for API credentials and flexible settings for managing multiple LLM providers.
 
+TLDR: Users can save AI providers (OpenAI, Ollama, etc) and send the webpage content to these providers quickly, to summarize, etc.
+
+
+
+
 2. Key Features
 ---------------
 2.1. Secure Storage of API Credentials
@@ -152,3 +157,39 @@ Provide shell scripts/batch files for each major platform—Windows, macOS (Darw
 7. Conclusion
 -------------
 Lirum Chrome LLMs aims to bring the power of multiple Large Language Models directly to your browser. By combining secure credential management, a flexible command system, and a straightforward user interface, the extension helps users streamline research, writing, analysis, and much more.
+
+8. Implementation Task List
+--------------------------
+[x] LLM Provider Interface & Base Implementation
+[x] OpenAI Provider Implementation
+[x] Anthropic Provider Implementation
+[x] Deepseek Provider Implementation
+[x] Ollama Provider Implementation
+[x] LM Studio Provider Implementation
+[x] Provider Factory Implementation
+[x] Secure Storage Implementation (chrome.storage)
+[x] Logger Implementation
+[ ] Content Script Implementation
+    - Extract page content
+    - Handle text selection
+[ ] Popup UI Implementation
+    - Provider selection dropdown
+    - Model selection for chosen provider
+    - Command input/selection
+    - Response display
+    - Settings button
+[ ] Options Page Implementation
+    - Provider configuration
+    - API key management
+    - Default settings
+[ ] Background Service Implementation
+    - Handle API requests
+    - Manage provider initialization
+[ ] Chrome Extension Setup
+    - Manifest.json configuration
+    - Permissions setup
+    - Icon and assets
+[ ] Build & Package Configuration
+    - Webpack setup
+    - Development scripts
+    - Production build
