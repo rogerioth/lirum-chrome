@@ -46,14 +46,23 @@ export const ProviderModal: React.FC<ProviderModalProps> = ({
   useEffect(() => {
     const provider = LLMProviderFactory.getProvider(providerType);
     setAvailableModels(LLMProviderFactory.getAvailableModels(providerType));
-    setSelectedModel(LLMProviderFactory.getDefaultModel(providerType));
     
-    // Only set default endpoint if it's a new provider (no initialConfig)
-    // and the current endpoint is empty
-    if (LLMProviderFactory.isLocalProvider(providerType) && !initialConfig && !endpoint) {
+    // Set default model if no model is selected
+    if (!selectedModel) {
+      setSelectedModel(LLMProviderFactory.getDefaultModel(providerType));
+    }
+    
+    // Set default endpoint for all providers when type changes
+    if (!initialConfig?.endpoint) {
       setEndpoint(provider.defaultEndpoint || '');
     }
-  }, [providerType, initialConfig, endpoint]);
+
+    // Set default name based on provider type
+    const nameInput = document.getElementById('provider-name') as HTMLInputElement;
+    if (nameInput && !nameInput.value) {
+      nameInput.value = LLMProviderFactory.getProviderName(providerType);
+    }
+  }, [providerType, initialConfig?.endpoint, selectedModel]);
 
   const validateConfig = (): ValidationState => {
     const newValidation: ValidationState = {
@@ -100,6 +109,22 @@ export const ProviderModal: React.FC<ProviderModalProps> = ({
       endpoint: true,
       model: true
     });
+
+    // Autopopulate name and endpoint based on provider type
+    setApiKey('');
+    setEndpoint(newType === 'ollama' ? 'http://localhost:11434' : newType === 'lmstudio' ? 'http://localhost:1234' : '');
+    setSelectedModel('');
+    setAvailableModels([]);
+
+    // Set default name
+    const nameInput = document.getElementById('provider-name') as HTMLInputElement;
+    if (nameInput) {
+      nameInput.value = LLMProviderFactory.getProviderName(newType);
+    }
+
+    // Fetch available models for the selected provider type
+    const provider = LLMProviderFactory.getProvider(newType);
+    setAvailableModels(provider.availableModels);
   };
 
   const handleTest = async () => {

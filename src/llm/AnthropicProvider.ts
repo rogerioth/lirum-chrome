@@ -25,8 +25,8 @@ export class AnthropicProvider implements LLMProvider {
     this.logger = Logger.getInstance();
   }
 
-  async initialize(apiKey: string): Promise<void> {
-    if (!this.validateApiKey(apiKey)) {
+  async initialize(apiKey?: string, endpoint?: string): Promise<void> {
+    if (!apiKey || !this.validateApiKey(apiKey)) {
       throw new Error('Invalid API key format. Key should be at least 5 characters long.');
     }
 

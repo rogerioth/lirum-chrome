@@ -1,9 +1,5 @@
 import { LLMProvider as Provider } from '../llm/LLMProvider';
-import { OpenAIProvider } from '../llm/OpenAIProvider';
-import { AnthropicProvider } from '../llm/AnthropicProvider';
-import { OllamaProvider } from '../llm/OllamaProvider';
-import { DeepseekProvider } from '../llm/DeepseekProvider';
-import { LMStudioProvider } from '../llm/LMStudioProvider';
+import { LLMProviderFactory, ProviderType } from '../llm/LLMProviderFactory';
 import { Logger, LogLevel } from '../utils/Logger';
 import '../styles/options.css';
 
@@ -15,9 +11,7 @@ interface LLMProvider {
     model: string;
 }
 
-type ProviderType = 'openai' | 'anthropic' | 'ollama' | 'deepseek' | 'lmstudio';
-
-const PROVIDER_TYPES: ProviderType[] = ['openai', 'anthropic', 'ollama', 'deepseek', 'lmstudio'];
+const PROVIDER_TYPES: ProviderType[] = LLMProviderFactory.getProviderTypes();
 
 interface Command {
     name: string;
@@ -73,24 +67,11 @@ class OptionsManager {
     }
 
     private getProviderInstance(type: ProviderType): Provider {
-        switch (type) {
-            case 'openai':
-                return new OpenAIProvider();
-            case 'anthropic':
-                return new AnthropicProvider();
-            case 'ollama':
-                return new OllamaProvider();
-            case 'deepseek':
-                return new DeepseekProvider();
-            case 'lmstudio':
-                return new LMStudioProvider();
-            default:
-                throw new Error(`Unknown provider type: ${type}`);
-        }
+        return LLMProviderFactory.getProvider(type);
     }
 
     private isLocalProvider(type: ProviderType): boolean {
-        return type === 'ollama' || type === 'lmstudio';
+        return LLMProviderFactory.isLocalProvider(type);
     }
 
     private async testProvider(): Promise<void> {
@@ -121,17 +102,18 @@ class OptionsManager {
                 throw new Error('Invalid API key format.');
             }
 
-            // Set endpoint before initialization
-            provider.defaultEndpoint = endpointInput.value;
-
-            // Initialize provider
-            await provider.initialize(isLocal ? endpointInput.value : apiKeyInput.value);
+            // Initialize provider with appropriate parameters based on type
+            if (isLocal) {
+                await provider.initialize(undefined, endpointInput.value);
+            } else {
+                await provider.initialize(apiKeyInput.value);
+            }
 
             // Set model if provided (no validation)
             const modelToUse = modelInput.value || provider.defaultModel;
             provider.setModel(modelToUse);
 
-            const response = await provider.complete('Hello!');
+            const response = await provider.complete('Hello! Please respond with a short greeting.');
             
             await this.logger.info('Provider test successful', {
                 type,
@@ -143,7 +125,7 @@ class OptionsManager {
             this.showMessage(`Connection test successful!\nEndpoint: ${endpointInput.value}\nModel: ${modelToUse}\nResponse: ${response.content}`, false, true);
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : 'Test failed';
-            await this.logger.error('Provider test failed', { 
+            await this.logger.error('Provider test failed', {
                 error: errorMessage,
                 endpoint: endpointInput.value
             });
@@ -212,16 +194,49 @@ class OptionsManager {
         });
 
         // Provider type change
-        const typeSelect = document.getElementById('provider-type');
+        const typeSelect = document.getElementById('provider-type') as HTMLSelectElement;
         const nameInput = document.getElementById('provider-name') as HTMLInputElement;
+        const modelInput = document.getElementById('provider-model') as HTMLInputElement;
+        const endpointInput = document.getElementById('provider-endpoint') as HTMLInputElement;
         
         typeSelect?.addEventListener('change', () => {
-            // Only update name if it's empty or matches a previous type
-            if (!nameInput.value || PROVIDER_TYPES.includes(nameInput.value as ProviderType)) {
-                nameInput.value = (typeSelect as HTMLSelectElement).value;
+            const type = typeSelect.value as ProviderType;
+            
+            // Update name with provider name
+            nameInput.value = LLMProviderFactory.getProviderName(type);
+
+            // Clear model input to ensure it gets the new default
+            if (modelInput) {
+                modelInput.value = '';
             }
+
+            // Set default endpoint for all providers
+            if (endpointInput) {
+                const defaultEndpoint = LLMProviderFactory.getDefaultEndpoint(type);
+                endpointInput.value = defaultEndpoint;
+            }
+
+            // Update fields and models list
             this.updateProviderFields();
             this.updateModelsList();
+        });
+
+        // Model input change
+        modelInput?.addEventListener('change', () => {
+            const type = typeSelect.value as ProviderType;
+            const models = LLMProviderFactory.getAvailableModels(type);
+            
+            this.logger.debug('Model input changed', {
+                newValue: modelInput.value,
+                availableModels: models
+            });
+
+            // If the value is not in the available models, reset to default
+            if (!models.includes(modelInput.value)) {
+                const defaultModel = LLMProviderFactory.getDefaultModel(type);
+                modelInput.value = defaultModel;
+                this.logger.debug('Reset to default model', { model: defaultModel });
+            }
         });
 
         // Logs management
@@ -423,20 +438,21 @@ class OptionsManager {
         const endpointInput = document.getElementById('provider-endpoint') as HTMLInputElement;
         const modelInput = document.getElementById('provider-model') as HTMLInputElement;
         
+        this.logger.debug('Opening provider modal', {
+            provider: provider ? {
+                type: provider.type,
+                name: provider.name,
+                model: provider.model
+            } : 'new provider'
+        });
+        
         // Populate provider types with correct capitalization
         typeSelect.innerHTML = '';
-        const providerNames = {
-            'openai': 'OpenAI',
-            'anthropic': 'Anthropic',
-            'ollama': 'Ollama',
-            'deepseek': 'Deepseek',
-            'lmstudio': 'LMStudio'
-        };
         
         PROVIDER_TYPES.forEach(type => {
             const option = document.createElement('option');
             option.value = type;
-            option.textContent = providerNames[type];
+            option.textContent = LLMProviderFactory.getProviderName(type);
             typeSelect.appendChild(option);
         });
         
@@ -453,7 +469,8 @@ class OptionsManager {
             endpointInput.value = '';
             modelInput.value = '';
         }
-        
+
+        // Important: First update fields, then update models list
         this.updateProviderFields();
         this.updateModelsList();
         modal.style.display = 'flex';
@@ -576,7 +593,6 @@ class OptionsManager {
         
         const type = typeSelect.value as ProviderType;
         const isLocal = this.isLocalProvider(type);
-        const provider = this.getProviderInstance(type);
         
         // Show/hide API key field based on provider type
         if (apiKeyGroup) {
@@ -588,28 +604,11 @@ class OptionsManager {
             endpointGroup.style.display = 'block';
             const endpointInput = document.getElementById('provider-endpoint') as HTMLInputElement;
             
-            // Clear the current value and set the new default
-            endpointInput.value = '';
-            if (provider.defaultEndpoint) {
-                endpointInput.value = provider.defaultEndpoint;
-            }
-            
-            // Set appropriate placeholder text
-            if (isLocal) {
-                endpointInput.placeholder = 'Enter endpoint URL (e.g., http://localhost:11434)';
-                if (type === 'ollama') {
-                    endpointInput.value = 'http://localhost:11434';
-                } else if (type === 'lmstudio') {
-                    endpointInput.value = 'http://localhost:1234';
-                }
-            } else if (type === 'openai') {
-                endpointInput.placeholder = 'Enter endpoint URL (optional, defaults to api.openai.com)';
-                endpointInput.value = 'https://api.openai.com/v1';
-            } else if (type === 'anthropic') {
-                endpointInput.placeholder = 'Enter endpoint URL (optional, defaults to api.anthropic.com)';
-                endpointInput.value = 'https://api.anthropic.com';
-            } else {
-                endpointInput.placeholder = 'Enter endpoint URL';
+            // Only set default endpoint if the field is empty
+            if (!endpointInput.value) {
+                const defaultEndpoint = LLMProviderFactory.getDefaultEndpoint(type);
+                endpointInput.placeholder = `Enter endpoint URL (default: ${defaultEndpoint})`;
+                endpointInput.value = defaultEndpoint;
             }
         }
     }
@@ -619,24 +618,48 @@ class OptionsManager {
         const modelInput = document.getElementById('provider-model') as HTMLInputElement;
         const modelDatalist = document.getElementById('model-options') as HTMLDataListElement;
         
-        if (!modelInput || !modelDatalist) return;
+        if (!modelInput || !modelDatalist) {
+            this.logger.error('Failed to find model input or datalist elements', {
+                modelInput: !!modelInput,
+                modelDatalist: !!modelDatalist
+            });
+            return;
+        }
 
         const type = typeSelect.value as ProviderType;
-        const provider = this.getProviderInstance(type);
-        const models = provider.availableModels;
-        const defaultModel = provider.defaultModel;
+        const models = LLMProviderFactory.getAvailableModels(type);
+        const defaultModel = LLMProviderFactory.getDefaultModel(type);
+
+        this.logger.debug('Updating models list', {
+            type,
+            models,
+            defaultModel,
+            currentValue: modelInput.value
+        });
 
         // Clear and populate the datalist
         modelDatalist.innerHTML = '';
+        
+        // Create a default option in the datalist
+        const defaultOption = document.createElement('option');
+        defaultOption.value = defaultModel;
+        defaultOption.textContent = defaultModel;
+        modelDatalist.appendChild(defaultOption);
+
+        // Add all other models
         models.forEach(model => {
-            const option = document.createElement('option');
-            option.value = model;
-            modelDatalist.appendChild(option);
+            if (model !== defaultModel) {
+                const option = document.createElement('option');
+                option.value = model;
+                option.textContent = model;
+                modelDatalist.appendChild(option);
+            }
         });
 
         // Set default value if empty
         if (!modelInput.value) {
             modelInput.value = defaultModel;
+            this.logger.debug('Set default model', { model: defaultModel });
         }
     }
 

@@ -24,6 +24,14 @@ export class LLMProviderFactory {
         lmstudio: 'LM Studio'
     };
 
+    private static readonly defaultEndpoints = {
+        openai: 'https://api.openai.com',
+        anthropic: 'https://api.anthropic.com',
+        deepseek: 'https://api.deepseek.com',
+        ollama: 'http://localhost:11434',
+        lmstudio: 'http://localhost:1234'
+    };
+
     private constructor() {
         // Private constructor to prevent instantiation
     }
@@ -53,8 +61,7 @@ export class LLMProviderFactory {
         return type === 'ollama' || type === 'lmstudio';
     }
 
-    static getDefaultEndpoint(type: ProviderType): string | undefined {
-        if (!this.isLocalProvider(type)) return undefined;
-        return this.getProvider(type).defaultEndpoint;
+    static getDefaultEndpoint(type: ProviderType): string {
+        return this.defaultEndpoints[type];
     }
 } 

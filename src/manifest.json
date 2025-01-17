@@ -8,6 +8,11 @@
     "activeTab",
     "scripting"
   ],
+  "host_permissions": [
+    "http://*/",
+    "https://*/",
+    "http://192.168.1.110/*"
+  ],
   "action": {
     "default_popup": "popup/popup.html",
     "default_icon": {

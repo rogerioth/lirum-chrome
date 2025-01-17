@@ -27,6 +27,7 @@
     "@types/chrome": "^0.0.296",
     "@types/jest": "^29.5.14",
     "@types/node": "^22.10.7",
+    "@types/node-fetch": "^2.6.12",
     "@types/react": "^19.0.7",
     "@types/react-dom": "^19.0.3",
     "@typescript-eslint/eslint-plugin": "^8.20.0",
@@ -49,5 +50,8 @@
     "typescript-eslint": "^8.20.0",
     "webpack": "^5.97.1",
     "webpack-cli": "^6.0.1"
+  },
+  "dependencies": {
+    "node-fetch": "^3.3.2"
   }
 }
