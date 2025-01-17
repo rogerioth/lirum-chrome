@@ -79,7 +79,7 @@ class OptionsManager {
         const typeSelect = document.getElementById('provider-type') as HTMLSelectElement;
         const endpointInput = document.getElementById('provider-endpoint') as HTMLInputElement;
         const apiKeyInput = document.getElementById('provider-apikey') as HTMLInputElement;
-        const modelInput = document.getElementById('provider-model') as HTMLInputElement;
+        const modelSelect = document.getElementById('provider-model') as HTMLSelectElement;
         const testButton = document.getElementById('test-provider') as HTMLButtonElement;
 
         try {
@@ -111,7 +111,7 @@ class OptionsManager {
             }
 
             // Set model if provided (no validation)
-            const modelToUse = modelInput.value || provider.defaultModel;
+            const modelToUse = modelSelect.value || provider.defaultModel;
             provider.setModel(modelToUse);
 
             const response = await provider.complete('Hello! Please respond with a short greeting.');
@@ -197,7 +197,7 @@ class OptionsManager {
         // Provider type change
         const typeSelect = document.getElementById('provider-type') as HTMLSelectElement;
         const nameInput = document.getElementById('provider-name') as HTMLInputElement;
-        const modelInput = document.getElementById('provider-model') as HTMLInputElement;
+        const modelSelect = document.getElementById('provider-model') as HTMLSelectElement;
         const endpointInput = document.getElementById('provider-endpoint') as HTMLInputElement;
         
         typeSelect?.addEventListener('change', () => {
@@ -207,8 +207,8 @@ class OptionsManager {
             nameInput.value = LLMProviderFactory.getProviderName(type);
 
             // Clear model input to ensure it gets the new default
-            if (modelInput) {
-                modelInput.value = '';
+            if (modelSelect) {
+                modelSelect.value = '';
             }
 
             // Set default endpoint for all providers
@@ -223,19 +223,19 @@ class OptionsManager {
         });
 
         // Model input change
-        modelInput?.addEventListener('change', () => {
+        modelSelect?.addEventListener('change', () => {
             const type = typeSelect.value as ProviderType;
             const models = LLMProviderFactory.getAvailableModels(type);
             
             this.logger.debug('Model input changed', {
-                newValue: modelInput.value,
+                newValue: modelSelect.value,
                 availableModels: models
             });
 
             // If the value is not in the available models, reset to default
-            if (!models.includes(modelInput.value)) {
+            if (!models.includes(modelSelect.value)) {
                 const defaultModel = LLMProviderFactory.getDefaultModel(type);
-                modelInput.value = defaultModel;
+                modelSelect.value = defaultModel;
                 this.logger.debug('Reset to default model', { model: defaultModel });
             }
         });
@@ -541,7 +541,7 @@ class OptionsManager {
         const nameInput = document.getElementById('provider-name') as HTMLInputElement;
         const endpointInput = document.getElementById('provider-endpoint') as HTMLInputElement;
         const apiKeyInput = document.getElementById('provider-apikey') as HTMLInputElement;
-        const modelInput = document.getElementById('provider-model') as HTMLInputElement;
+        const modelSelect = document.getElementById('provider-model') as HTMLSelectElement;
         const saveButton = document.getElementById('modal-save') as HTMLButtonElement;
 
         try {
@@ -564,7 +564,7 @@ class OptionsManager {
             const provider: LLMProvider = {
                 type,
                 name: nameInput.value,
-                model: modelInput.value || this.getProviderInstance(type).defaultModel
+                model: modelSelect.value || this.getProviderInstance(type).defaultModel
             };
 
             if (isLocal) {
@@ -628,7 +628,7 @@ class OptionsManager {
         const typeSelect = document.getElementById('provider-type') as HTMLSelectElement;
         const apiKeyInput = document.getElementById('provider-apikey') as HTMLInputElement;
         const endpointInput = document.getElementById('provider-endpoint') as HTMLInputElement;
-        const modelInput = document.getElementById('provider-model') as HTMLInputElement;
+        const modelSelect = document.getElementById('provider-model') as HTMLSelectElement;
         
         this.logger.debug('Opening provider modal', {
             provider: provider ? {
@@ -653,13 +653,13 @@ class OptionsManager {
             typeSelect.value = provider.type;
             apiKeyInput.value = provider.apiKey || '';
             endpointInput.value = provider.endpoint || '';
-            modelInput.value = provider.model || '';
+            modelSelect.value = provider.model || '';
         } else {
             nameInput.value = '';
             typeSelect.value = PROVIDER_TYPES[0];
             apiKeyInput.value = '';
             endpointInput.value = '';
-            modelInput.value = '';
+            modelSelect.value = '';
         }
 
         // Important: First update fields, then update models list
@@ -738,13 +738,11 @@ class OptionsManager {
 
     private updateModelsList(): void {
         const typeSelect = document.getElementById('provider-type') as HTMLSelectElement;
-        const modelInput = document.getElementById('provider-model') as HTMLInputElement;
-        const modelDatalist = document.getElementById('model-options') as HTMLDataListElement;
+        const modelSelect = document.getElementById('provider-model') as HTMLSelectElement;
         
-        if (!modelInput || !modelDatalist) {
-            this.logger.error('Failed to find model input or datalist elements', {
-                modelInput: !!modelInput,
-                modelDatalist: !!modelDatalist
+        if (!modelSelect) {
+            this.logger.error('Failed to find model select element', {
+                modelSelect: !!modelSelect
             });
             return;
         }
@@ -757,33 +755,20 @@ class OptionsManager {
             type,
             models,
             defaultModel,
-            currentValue: modelInput.value
+            currentValue: modelSelect.value
         });
 
-        // Clear and populate the datalist
-        modelDatalist.innerHTML = '';
-        
-        // Create a default option in the datalist
-        const defaultOption = document.createElement('option');
-        defaultOption.value = defaultModel;
-        defaultOption.textContent = defaultModel;
-        modelDatalist.appendChild(defaultOption);
-
-        // Add all other models
+        // Clear and populate the select element
+        modelSelect.innerHTML = '';
         models.forEach(model => {
-            if (model !== defaultModel) {
-                const option = document.createElement('option');
-                option.value = model;
-                option.textContent = model;
-                modelDatalist.appendChild(option);
+            const option = document.createElement('option');
+            option.value = model;
+            option.textContent = model;
+            if (model === defaultModel) {
+                option.selected = true;
             }
+            modelSelect.appendChild(option);
         });
-
-        // Set default value if empty
-        if (!modelInput.value) {
-            modelInput.value = defaultModel;
-            this.logger.debug('Set default model', { model: defaultModel });
-        }
     }
 
     private setLoading(button: HTMLButtonElement, loading: boolean): void {
