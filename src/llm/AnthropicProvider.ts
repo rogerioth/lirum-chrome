@@ -3,14 +3,14 @@ import { Logger } from '../utils/Logger';
 
 export class AnthropicProvider implements LLMProvider {
   name = 'Anthropic';
-  defaultModel = 'claude-3-opus';
+  defaultModel = 'claude-3-5-sonnet-latest';
   availableModels = [
-    'claude-3-opus',
-    'claude-3-sonnet',
-    'claude-3-haiku',
-    'claude-2.1',
-    'claude-2.0',
-    'claude-instant-1.2'
+    'claude-3-5-sonnet-latest',
+    'claude-3-5-haiku-latest',
+    'claude-3-opus-latest',
+    'claude-3-5-sonnet-20241022',
+    'claude-3-5-haiku-20241022',
+    'claude-3-haiku-20240307'
   ];
 
   private apiKey: string | null = null;
@@ -35,7 +35,8 @@ export class AnthropicProvider implements LLMProvider {
       const response = await fetch('https://api.anthropic.com/v1/models', {
         headers: {
           'x-api-key': apiKey,
-          'anthropic-version': this.API_VERSION
+          'anthropic-version': this.API_VERSION,
+          'anthropic-dangerous-direct-browser-access': 'true'
         }
       });
 
@@ -62,7 +63,7 @@ export class AnthropicProvider implements LLMProvider {
     const requestBody = {
       model: this.currentModel,
       messages: [{ role: 'user', content: prompt }],
-      max_tokens: options.maxTokens,
+      max_tokens: options.maxTokens ?? 1024,
       temperature: options.temperature ?? 0.7,
       top_p: options.topP ?? 1,
       stop_sequences: options.stop
@@ -74,7 +75,8 @@ export class AnthropicProvider implements LLMProvider {
         headers: {
           'Content-Type': 'application/json',
           'x-api-key': this.apiKey!,
-          'anthropic-version': this.API_VERSION
+          'anthropic-version': this.API_VERSION,
+          'anthropic-dangerous-direct-browser-access': 'true'
         },
         body: JSON.stringify(requestBody)
       });
