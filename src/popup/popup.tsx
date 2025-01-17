@@ -2,7 +2,9 @@ import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { LLMProviderFactory, ProviderType } from '../llm/LLMProviderFactory';
 import { Logger } from '../utils/Logger';
+import { markdownToHtml } from '../utils/markdown';
 import '../styles/popup.css';
+import '../styles/markdown.css';
 
 interface Provider {
     type: ProviderType;
@@ -21,6 +23,7 @@ interface PopupState {
     content: string | null;
     response: string | null;
     isChromeUrl: boolean;
+    isInputExpanded: boolean;
 }
 
 const DEFAULT_COMMANDS = [
@@ -41,7 +44,8 @@ const Popup: React.FC = () => {
         error: null,
         content: null,
         response: null,
-        isChromeUrl: false
+        isChromeUrl: false,
+        isInputExpanded: false
     });
 
     const handleChromeUrl = async () => {
@@ -61,7 +65,8 @@ const Popup: React.FC = () => {
                         error: null,
                         content: null,
                         response: null,
-                        isChromeUrl: true
+                        isChromeUrl: true,
+                        isInputExpanded: false
                     }));
                     return;
                 }
@@ -152,7 +157,8 @@ const Popup: React.FC = () => {
                     ...prev,
                     isLoading: false,
                     error: errorMessage,
-                    isChromeUrl: false
+                    isChromeUrl: false,
+                    isInputExpanded: false
                 }));
             }
         };
@@ -174,7 +180,8 @@ const Popup: React.FC = () => {
                 error: null,
                 content: contentResponse.content,
                 response: null,
-                isChromeUrl: false
+                isChromeUrl: false,
+                isInputExpanded: false
             });
         };
 
@@ -189,7 +196,8 @@ const Popup: React.FC = () => {
             isLoading: true, 
             error: null, 
             response: null, 
-            isChromeUrl: false 
+            isChromeUrl: false,
+            isInputExpanded: false
         }));
 
         try {
@@ -209,7 +217,8 @@ const Popup: React.FC = () => {
                 ...prev,
                 isLoading: false,
                 response: response.content || '',
-                isChromeUrl: false
+                isChromeUrl: false,
+                isInputExpanded: false
             }));
 
         } catch (error) {
@@ -219,13 +228,18 @@ const Popup: React.FC = () => {
                 ...prev,
                 isLoading: false,
                 error: errorMessage,
-                isChromeUrl: false
+                isChromeUrl: false,
+                isInputExpanded: false
             }));
         }
     };
 
     const handleSettings = () => {
         chrome.runtime.openOptionsPage();
+    };
+
+    const toggleInput = () => {
+        setState(prev => ({ ...prev, isInputExpanded: !prev.isInputExpanded }));
     };
 
     if (state.isLoading) {
@@ -301,7 +315,12 @@ const Popup: React.FC = () => {
             <div className="provider-section">
                 <select
                     value={state.selectedProvider}
-                    onChange={(e) => setState({ ...state, selectedProvider: e.target.value, isChromeUrl: false })}
+                    onChange={(e) => setState({ 
+                        ...state, 
+                        selectedProvider: e.target.value, 
+                        isChromeUrl: false, 
+                        isInputExpanded: false 
+                    })}
                     disabled={state.isLoading}
                 >
                     {state.providers.map((provider) => (
@@ -315,7 +334,12 @@ const Popup: React.FC = () => {
             <div className="command-section">
                 <select
                     value={state.command}
-                    onChange={(e) => setState({ ...state, command: e.target.value, isChromeUrl: false })}
+                    onChange={(e) => setState({ 
+                        ...state, 
+                        command: e.target.value, 
+                        isChromeUrl: false, 
+                        isInputExpanded: false 
+                    })}
                     disabled={state.isLoading}
                 >
                     {DEFAULT_COMMANDS.map((cmd) => (
@@ -329,15 +353,29 @@ const Popup: React.FC = () => {
             <div className="preview-section">
                 {state.content && (
                     <div className="preview">
-                        <h2>Input</h2>
-                        <p>{state.content}</p>
+                        <button 
+                            className="expand-input"
+                            onClick={toggleInput}
+                            aria-expanded={state.isInputExpanded}
+                        >
+                            <span className="expand-icon">{state.isInputExpanded ? '▼' : '▶'}</span>
+                            Input
+                        </button>
+                        {state.isInputExpanded && (
+                            <div className="input-content">
+                                <p>{state.content}</p>
+                            </div>
+                        )}
                     </div>
                 )}
                 
                 {state.response && (
                     <div className="response">
                         <h2>Output</h2>
-                        <p>{state.response}</p>
+                        <div 
+                            className="markdown-content"
+                            dangerouslySetInnerHTML={{ __html: markdownToHtml(state.response) }}
+                        />
                     </div>
                 )}
             </div>

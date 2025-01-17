@@ -128,6 +128,23 @@ async function initializeProvider(type: ProviderType, config: StoredProviderConf
     }
 }
 
+const getPromptForCommand = (command: string, content: string): string => {
+    switch (command) {
+        case 'Summarize':
+            return `Please provide a concise summary of the following text. Format your response in markdown, using appropriate headings, bullet points, or emphasis where relevant:\n\n${content}`;
+        case 'Paraphrase':
+            return `Please rewrite the following text in a different way while maintaining its meaning. Format your response in markdown, using appropriate styling where it enhances readability:\n\n${content}`;
+        case 'Bullet Points':
+            return `Please convert the following text into a well-organized list of key points. Use markdown formatting with proper bullet points, sub-points, and emphasis where appropriate:\n\n${content}`;
+        case 'Translate':
+            return `Please translate the following text to English (if not already in English) or to Spanish (if already in English). Format your response in markdown, with the translation and any notes properly styled:\n\n${content}`;
+        case 'Analyze Tone':
+            return `Please analyze the tone, style, and emotional content of the following text. Format your response in markdown, using headings for different aspects and appropriate formatting for examples and emphasis:\n\n${content}`;
+        default:
+            return `Please ${command.toLowerCase()} the following text. Format your response in markdown:\n\n${content}`;
+    }
+};
+
 // Handle content processing
 async function processContent(
     provider: ProviderType,
@@ -165,14 +182,7 @@ async function processContent(
         isInitialized: llmProvider.isInitialized()
     });
 
-    const prompt = `
-Command: ${command}
-Title: ${title}
-Content:
-${content}
-
-Please ${command.toLowerCase()} the above content.
-`.trim();
+    const prompt = getPromptForCommand(command, content);
 
     try {
         await logger.debug('Sending prompt to provider', { 

@@ -1,0 +1,136 @@
+/* Base markdown styles */
+.markdown-content {
+    font-size: 0.875rem;
+    line-height: 1.6;
+    color: var(--text-primary);
+    padding: 16px;
+    background: white;
+    border-radius: var(--border-radius);
+    border: 1px solid var(--border-color);
+}
+
+/* Headings */
+.md-h1, .md-h2, .md-h3, .md-h4 {
+    margin-top: 1em;
+    margin-bottom: 0.5em;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.md-h1 { font-size: 1.25rem; }
+.md-h2 { font-size: 1.125rem; }
+.md-h3 { font-size: 1rem; }
+.md-h4 { font-size: 0.875rem; }
+
+/* First heading should not have top margin */
+.markdown-content > :first-child {
+    margin-top: 0;
+}
+
+/* Last element should not have bottom margin */
+.markdown-content > :last-child {
+    margin-bottom: 0;
+}
+
+/* Paragraphs */
+.md-paragraph {
+    margin-bottom: 1em;
+    color: var(--text-primary);
+}
+
+/* Lists */
+.md-ul, .md-ol {
+    margin-bottom: 1em;
+    padding-left: 1.5em;
+}
+
+.md-li {
+    margin-bottom: 0.25em;
+    color: var(--text-primary);
+}
+
+/* Links */
+.md-link {
+    color: var(--primary-color);
+    text-decoration: none;
+    transition: color 0.2s ease;
+}
+
+.md-link:hover {
+    color: var(--primary-hover);
+    text-decoration: underline;
+}
+
+/* Emphasis */
+.md-em {
+    font-style: italic;
+}
+
+.md-strong {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+/* Blockquotes */
+.md-blockquote {
+    margin: 1em 0;
+    padding: 0.5em 1em;
+    border-left: 4px solid var(--primary-color);
+    background-color: var(--background-light);
+    color: var(--text-primary);
+}
+
+/* Code blocks */
+.md-pre {
+    margin: 1em 0;
+    padding: 1em;
+    background-color: var(--background-light);
+    border-radius: calc(var(--border-radius) - 2px);
+    border: 1px solid var(--border-color);
+    overflow-x: auto;
+}
+
+.md-code {
+    font-family: 'Fira Code', 'Consolas', monospace;
+    font-size: 0.875rem;
+    color: var(--text-primary);
+}
+
+/* Inline code */
+:not(pre) > .md-code {
+    padding: 0.2em 0.4em;
+    background-color: var(--background-light);
+    border-radius: 4px;
+}
+
+/* Tables */
+.md-table {
+    width: 100%;
+    margin: 1em 0;
+    border-collapse: collapse;
+    border: 1px solid var(--border-color);
+}
+
+.md-table th,
+.md-table td {
+    padding: 0.5em;
+    border: 1px solid var(--border-color);
+    text-align: left;
+}
+
+.md-table th {
+    background-color: var(--background-light);
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.md-table tr:nth-child(even) {
+    background-color: var(--background-light);
+}
+
+/* Horizontal rule */
+.md-hr {
+    margin: 1.5em 0;
+    border: 0;
+    border-top: 1px solid var(--border-color);
+}

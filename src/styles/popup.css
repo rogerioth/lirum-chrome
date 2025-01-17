@@ -100,6 +100,42 @@ input:focus {
     margin-bottom: 8px;
 }
 
+.expand-input {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 8px;
+    background: var(--background-light);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.expand-input:hover {
+    background: var(--purple-50);
+    color: var(--primary-color);
+}
+
+.expand-icon {
+    font-size: 0.625rem;
+    color: currentColor;
+}
+
+.input-content {
+    margin-top: 4px;
+    padding: 8px;
+    background: white;
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+}
+
 .preview h2 {
     font-size: 0.75rem;
     color: var(--text-secondary);
