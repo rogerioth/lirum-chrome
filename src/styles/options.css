@@ -480,6 +480,11 @@ body {
   border-left-color: #059669;
 }
 
+.log-entry.warn {
+  background-color: #f7d2c4;
+  border-left-color: #f39c12;
+}
+
 .log-timestamp {
   color: var(--gray-500);
   font-size: 0.75rem;
@@ -504,10 +509,25 @@ body {
 }
 
 /* Level-specific colors */
-.log-entry.info .log-level { color: var(--purple-600); }
-.log-entry.debug .log-level { color: var(--gray-600); }
-.log-entry.error .log-level { color: #dc2626; }
-.log-entry.llm .log-level { color: #059669; }
+.log-level-info {
+  color: #3498db;
+}
+
+.log-level-debug {
+  color: #2ecc71;
+}
+
+.log-level-error {
+  color: #e74c3c;
+}
+
+.log-level-warn {
+  color: #f39c12;
+}
+
+.log-level-llm {
+  color: #9b59b6;
+}
 
 /* Icon Preview Styles */
 .icon-select-wrapper {

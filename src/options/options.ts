@@ -209,20 +209,7 @@ class OptionsManager {
             }
         });
 
-        // Modal events
-        document.getElementById('modal-cancel')?.addEventListener('click', () => {
-            this.hideProviderModal();
-        });
-
-        document.getElementById('test-provider')?.addEventListener('click', () => {
-            this.testProvider();
-        });
-
-        document.getElementById('modal-save')?.addEventListener('click', () => {
-            this.saveProviderModal();
-        });
-
-        // Command event listeners
+        // Command management
         document.getElementById('add-command')?.addEventListener('click', () => {
             this.showCommandModal();
         });
@@ -237,6 +224,28 @@ class OptionsManager {
             if (this.selectedCommandIndex !== -1) {
                 this.removeCommand();
             }
+        });
+
+        // Import/Export commands
+        document.getElementById('import-commands')?.addEventListener('click', () => {
+            this.importCommands();
+        });
+
+        document.getElementById('export-commands')?.addEventListener('click', () => {
+            this.exportCommands();
+        });
+
+        // Modal events
+        document.getElementById('modal-cancel')?.addEventListener('click', () => {
+            this.hideProviderModal();
+        });
+
+        document.getElementById('test-provider')?.addEventListener('click', () => {
+            this.testProvider();
+        });
+
+        document.getElementById('modal-save')?.addEventListener('click', () => {
+            this.saveProviderModal();
         });
 
         document.getElementById('save-command')?.addEventListener('click', () => {
@@ -484,45 +493,119 @@ class OptionsManager {
     }
 
     private async importCommands(): Promise<void> {
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.accept = '.json';
-        
-        input.onchange = async (e) => {
-            const file = (e.target as HTMLInputElement).files?.[0];
-            if (!file) return;
+        try {
+            // Create a file input element
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.json';
             
-            try {
-                const text = await file.text();
-                const commands = JSON.parse(text);
-                
-                if (!Array.isArray(commands) || !commands.every(cmd => cmd.name && cmd.prompt)) {
-                    throw new Error('Invalid commands format');
+            // Handle file selection
+            input.onchange = async (event) => {
+                const file = (event.target as HTMLInputElement).files?.[0];
+                if (!file) {
+                    await this.logger.error('No file selected for import');
+                    return;
                 }
                 
-                this.commands = commands;
-                this.selectedCommandIndex = -1;
-                await this.saveSettings();
-                this.updateCommandsList();
-            } catch (error) {
-                alert('Failed to import commands: ' + (error instanceof Error ? error.message : 'Invalid file'));
-            }
-        };
-        
-        input.click();
+                try {
+                    const content = await file.text();
+                    const importedCommands = JSON.parse(content);
+                    
+                    // Validate imported commands
+                    if (!Array.isArray(importedCommands)) {
+                        throw new Error('Invalid commands format: expected an array');
+                    }
+                    
+                    // Validate each command
+                    const validCommands = importedCommands.filter(cmd => {
+                        return (
+                            typeof cmd === 'object' &&
+                            cmd !== null &&
+                            typeof cmd.name === 'string' &&
+                            typeof cmd.icon === 'string' &&
+                            typeof cmd.prompt === 'string'
+                        );
+                    });
+                    
+                    if (validCommands.length === 0) {
+                        throw new Error('No valid commands found in import file');
+                    }
+                    
+                    if (validCommands.length !== importedCommands.length) {
+                        await this.logger.info('Some commands were skipped during import', {
+                            total: importedCommands.length,
+                            valid: validCommands.length,
+                            skipped: importedCommands.length - validCommands.length
+                        });
+                    }
+                    
+                    // Ask for confirmation if there are existing commands
+                    if (this.commands.length > 0) {
+                        if (confirm('Do you want to replace all existing commands with the imported ones?')) {
+                            this.commands = validCommands;
+                        } else if (confirm('Do you want to append the imported commands to the existing ones?')) {
+                            this.commands = [...this.commands, ...validCommands];
+                        } else {
+                            await this.logger.info('Import cancelled by user');
+                            return;
+                        }
+                    } else {
+                        this.commands = validCommands;
+                    }
+                    
+                    // Save and update UI
+                    await this.saveSettings();
+                    this.updateCommandsList();
+                    
+                    const message = `Successfully imported ${validCommands.length} commands`;
+                    this.showMessage(message);
+                    await this.logger.info(message, { commandCount: validCommands.length });
+                    
+                } catch (error) {
+                    const message = 'Failed to import commands: ' + (error instanceof Error ? error.message : 'Unknown error');
+                    this.showMessage(message, true);
+                    await this.logger.error('Import failed', { error });
+                }
+            };
+            
+            // Trigger file selection
+            input.click();
+            
+        } catch (error) {
+            await this.logger.error('Failed to initiate import', { error });
+            this.showMessage('Failed to import commands', true);
+        }
     }
 
-    private exportCommands(): void {
-        const data = JSON.stringify(this.commands, null, 2);
-        const blob = new Blob([data], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'lirum-commands.json';
-        a.click();
-        
-        URL.revokeObjectURL(url);
+    private async exportCommands(): Promise<void> {
+        try {
+            // Create a JSON string with proper formatting
+            const commandsJson = JSON.stringify(this.commands, null, 2);
+            
+            // Create a blob with the JSON data
+            const blob = new Blob([commandsJson], { type: 'application/json' });
+            
+            // Create a temporary URL for the blob
+            const url = URL.createObjectURL(blob);
+            
+            // Create a temporary link element
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `lirum-commands-${new Date().toISOString().split('T')[0]}.json`;
+            
+            // Append link to body, click it, and remove it
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            // Clean up the URL
+            URL.revokeObjectURL(url);
+            
+            await this.logger.info('Commands exported successfully');
+        } catch (error) {
+            await this.logger.error('Failed to export commands', { error });
+            this.showMessage('Failed to export commands', true);
+        }
     }
 
     private async initializeLogs(): Promise<void> {

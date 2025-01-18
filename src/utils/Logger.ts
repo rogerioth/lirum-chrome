@@ -1,4 +1,4 @@
-export type LogLevel = 'info' | 'debug' | 'error' | 'llm';
+export type LogLevel = 'info' | 'debug' | 'error' | 'warn' | 'llm';
 
 interface LogEntry {
   level: LogLevel;
@@ -53,6 +53,10 @@ export class Logger {
 
   async error(message: string, details?: Record<string, unknown>): Promise<void> {
     await this.addLog('error', message, details);
+  }
+
+  async warn(message: string, details?: Record<string, unknown>): Promise<void> {
+    await this.addLog('warn', message, details);
   }
 
   async llm(message: string, details?: Record<string, unknown>): Promise<void> {
