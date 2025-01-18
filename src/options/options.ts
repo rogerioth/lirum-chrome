@@ -1,3 +1,36 @@
+/**
+ * Options Page Manager for Lirum Chrome Extension
+ * 
+ * This module manages the configuration and settings interface for the Lirum Chrome extension.
+ * It provides a user interface for managing LLM providers and custom commands.
+ * 
+ * Key Features:
+ * 1. Provider Management:
+ *    - Add, edit, and remove LLM providers (OpenAI, Anthropic, etc.)
+ *    - Configure provider-specific settings (endpoints, API keys, models)
+ *    - Test provider connections with live validation
+ *    - Support for both cloud and local LLM providers
+ * 
+ * 2. Command Management:
+ *    - Maintain a list of custom commands with associated prompts
+ *    - Default commands for common operations (Summarize, Paraphrase, etc.)
+ *    - Add, edit, and remove custom commands
+ *    - Command validation and persistence
+ * 
+ * 3. UI Features:
+ *    - Tabbed navigation interface for organized settings
+ *    - Modal dialogs for adding/editing providers and commands
+ *    - Real-time validation and feedback
+ *    - Persistent storage of settings
+ * 
+ * Navigation Structure:
+ * - Providers Tab: Manage LLM provider configurations
+ * - Commands Tab: Customize text processing commands
+ * - Settings Tab: General extension settings
+ * 
+ * @module options
+ */
+
 import { LLMProvider as Provider } from '../llm/LLMProvider';
 import { LLMProviderFactory, ProviderType } from '../llm/LLMProviderFactory';
 import { Logger, LogLevel } from '../utils/Logger';
@@ -15,15 +48,16 @@ const PROVIDER_TYPES: ProviderType[] = LLMProviderFactory.getProviderTypes();
 
 interface Command {
     name: string;
+    icon: string;
     prompt: string;
 }
 
 const DEFAULT_COMMANDS: Command[] = [
-    { name: 'Summarize', prompt: 'Please provide a concise summary of the following content:' },
-    { name: 'Paraphrase', prompt: 'Please rewrite the following content in different words while maintaining its meaning:' },
-    { name: 'Bullet Points', prompt: 'Please convert the following content into clear, organized bullet points:' },
-    { name: 'Translate', prompt: 'Please translate the following content to English (or specify target language):' },
-    { name: 'Analyze Tone', prompt: 'Please analyze the tone and emotional content of the following text:' }
+    { name: 'Summarize', icon: 'fa-solid fa-compress', prompt: 'Please provide a concise summary of the following content:' },
+    { name: 'Paraphrase', icon: 'fa-solid fa-pen', prompt: 'Please rewrite the following content in different words while maintaining its meaning:' },
+    { name: 'Bullet Points', icon: 'fa-solid fa-list', prompt: 'Please convert the following content into clear, organized bullet points:' },
+    { name: 'Translate', icon: 'fa-solid fa-language', prompt: 'Please translate the following content to English (or specify target language):' },
+    { name: 'Analyze Tone', icon: 'fa-solid fa-face-smile', prompt: 'Please analyze the tone and emotional content of the following text:' }
 ];
 
 // Add navigation handling
@@ -162,24 +196,18 @@ class OptionsManager {
         });
 
         document.getElementById('edit-provider')?.addEventListener('click', async () => {
-            await this.logger.info('Opening edit provider modal', { providerIndex: this.selectedProviderIndex });
-            this.editSelectedProvider();
+            if (this.selectedProviderIndex !== -1) {
+                await this.logger.info('Opening edit provider modal', { providerIndex: this.selectedProviderIndex });
+                this.showProviderModal(this.providers[this.selectedProviderIndex]);
+            }
         });
 
         document.getElementById('remove-provider')?.addEventListener('click', async () => {
-            await this.logger.info('Removing provider', { providerIndex: this.selectedProviderIndex });
-            this.removeSelectedProvider();
+            if (this.selectedProviderIndex !== -1) {
+                await this.logger.info('Removing provider', { providerIndex: this.selectedProviderIndex });
+                this.removeSelectedProvider();
+            }
         });
-
-        // Provider selection
-        const providersList = document.getElementById('providers-list') as HTMLSelectElement;
-        if (providersList) {
-            providersList.addEventListener('change', async () => {
-                this.selectedProviderIndex = parseInt(providersList.value);
-                await this.logger.debug('Provider selected', { index: this.selectedProviderIndex });
-                this.updateProviderButtons();
-            });
-        }
 
         // Modal events
         document.getElementById('modal-cancel')?.addEventListener('click', () => {
@@ -194,50 +222,33 @@ class OptionsManager {
             this.saveProviderModal();
         });
 
-        // Provider type change
-        const typeSelect = document.getElementById('provider-type') as HTMLSelectElement;
-        const nameInput = document.getElementById('provider-name') as HTMLInputElement;
-        const modelSelect = document.getElementById('provider-model') as HTMLSelectElement;
-        const endpointInput = document.getElementById('provider-endpoint') as HTMLInputElement;
+        // Command event listeners
+        document.getElementById('add-command')?.addEventListener('click', () => {
+            this.showCommandModal();
+        });
         
-        typeSelect?.addEventListener('change', () => {
-            const type = typeSelect.value as ProviderType;
-            
-            // Update name with provider name
-            nameInput.value = LLMProviderFactory.getProviderName(type);
-
-            // Clear model input to ensure it gets the new default
-            if (modelSelect) {
-                modelSelect.value = '';
+        document.getElementById('edit-command')?.addEventListener('click', () => {
+            if (this.selectedCommandIndex !== -1) {
+                this.showCommandModal(true);
             }
-
-            // Set default endpoint for all providers
-            if (endpointInput) {
-                const defaultEndpoint = LLMProviderFactory.getDefaultEndpoint(type);
-                endpointInput.value = defaultEndpoint;
+        });
+        
+        document.getElementById('remove-command')?.addEventListener('click', () => {
+            if (this.selectedCommandIndex !== -1) {
+                this.removeCommand();
             }
-
-            // Update fields and models list
-            this.updateProviderFields();
-            this.updateModelsList();
         });
 
-        // Model input change
-        modelSelect?.addEventListener('change', () => {
-            const type = typeSelect.value as ProviderType;
-            const models = LLMProviderFactory.getAvailableModels(type);
-            
-            this.logger.debug('Model input changed', {
-                newValue: modelSelect.value,
-                availableModels: models
-            });
+        document.getElementById('save-command')?.addEventListener('click', () => {
+            this.saveCommand();
+        });
 
-            // If the value is not in the available models, reset to default
-            if (!models.includes(modelSelect.value)) {
-                const defaultModel = LLMProviderFactory.getDefaultModel(type);
-                modelSelect.value = defaultModel;
-                this.logger.debug('Reset to default model', { model: defaultModel });
-            }
+        // Close buttons for all modals
+        document.querySelectorAll('.close-button').forEach(button => {
+            button.addEventListener('click', () => {
+                this.hideProviderModal();
+                this.hideCommandModal();
+            });
         });
 
         // Logs management
@@ -267,31 +278,44 @@ class OptionsManager {
         // Initialize logs display
         this.initializeLogs();
 
-        // Command event listeners
-        document.getElementById('add-command')?.addEventListener('click', () => this.showCommandModal());
-        document.getElementById('edit-command')?.addEventListener('click', () => this.showCommandModal(true));
-        document.getElementById('remove-command')?.addEventListener('click', () => this.removeCommand());
-        document.getElementById('import-commands')?.addEventListener('click', () => this.importCommands());
-        document.getElementById('export-commands')?.addEventListener('click', () => this.exportCommands());
-        document.getElementById('reset-commands')?.addEventListener('click', () => this.resetCommands());
-        document.getElementById('save-command')?.addEventListener('click', () => this.saveCommand());
+        // Icon preview update
+        const iconInput = document.getElementById('command-icon') as HTMLInputElement;
+        const iconPreview = document.getElementById('icon-preview') as HTMLElement;
         
-        const commandsList = document.getElementById('commands-list') as HTMLSelectElement;
-        commandsList?.addEventListener('change', () => {
-            this.selectedCommandIndex = commandsList.selectedIndex;
-            this.updateCommandButtons();
+        iconInput?.addEventListener('input', () => {
+            iconPreview.className = iconInput.value;
         });
 
-        // Close modal buttons
-        document.querySelectorAll('.close-button').forEach(button => {
-            button.addEventListener('click', () => {
-                document.querySelectorAll('.modal').forEach(modal => {
-                    if (modal instanceof HTMLElement) {
-                        modal.style.display = 'none';
-                    }
+        // Command list click handling
+        const commandsList = document.getElementById('commands-list') as HTMLUListElement;
+        commandsList?.addEventListener('click', (e) => {
+            const target = e.target as HTMLElement;
+            const listItem = target.closest('.command-item') as HTMLLIElement;
+            
+            if (listItem) {
+                // Remove selected class from all items
+                commandsList.querySelectorAll('.command-item').forEach(item => {
+                    item.classList.remove('selected');
                 });
-            });
+                
+                // Add selected class to clicked item
+                listItem.classList.add('selected');
+                
+                // Update selected index
+                this.selectedCommandIndex = parseInt(listItem.dataset.index || '-1');
+                this.updateCommandButtons();
+            }
         });
+
+        // Provider selection
+        const providersList = document.getElementById('providers-list') as HTMLSelectElement;
+        if (providersList) {
+            providersList.addEventListener('change', async () => {
+                this.selectedProviderIndex = parseInt(providersList.value);
+                await this.logger.debug('Provider selected', { index: this.selectedProviderIndex });
+                this.updateProviderButtons();
+            });
+        }
     }
 
     private async loadSettings(): Promise<void> {
@@ -331,14 +355,39 @@ class OptionsManager {
     }
 
     private updateCommandsList(): void {
-        const commandsList = document.getElementById('commands-list') as HTMLSelectElement;
+        const commandsList = document.getElementById('commands-list') as HTMLUListElement;
         commandsList.innerHTML = '';
         
-        this.commands.forEach(command => {
-            const option = document.createElement('option');
-            option.textContent = command.name;
-            option.title = command.prompt;
-            commandsList.appendChild(option);
+        this.commands.forEach((command, index) => {
+            const li = document.createElement('li');
+            li.className = 'command-item';
+            li.dataset.index = index.toString();
+            
+            const icon = document.createElement('i');
+            icon.className = command.icon;
+            
+            const span = document.createElement('span');
+            span.textContent = command.name;
+            
+            li.appendChild(icon);
+            li.appendChild(span);
+            li.title = command.prompt;
+            
+            li.addEventListener('click', () => {
+                // Remove selected class from all items
+                commandsList.querySelectorAll('.command-item').forEach(item => {
+                    item.classList.remove('selected');
+                });
+                
+                // Add selected class to clicked item
+                li.classList.add('selected');
+                
+                // Update selected index
+                this.selectedCommandIndex = index;
+                this.updateCommandButtons();
+            });
+            
+            commandsList.appendChild(li);
         });
         
         this.updateCommandButtons();
@@ -357,6 +406,8 @@ class OptionsManager {
         const modal = document.getElementById('command-modal') as HTMLElement;
         const title = document.getElementById('command-modal-title') as HTMLElement;
         const nameInput = document.getElementById('command-name') as HTMLInputElement;
+        const iconInput = document.getElementById('command-icon') as HTMLInputElement;
+        const iconPreview = document.getElementById('icon-preview') as HTMLElement;
         const promptInput = document.getElementById('command-prompt') as HTMLTextAreaElement;
         
         title.textContent = isEdit ? 'Edit Command' : 'Add Command';
@@ -364,26 +415,38 @@ class OptionsManager {
         if (isEdit && this.selectedCommandIndex !== -1) {
             const command = this.commands[this.selectedCommandIndex];
             nameInput.value = command.name;
+            iconInput.value = command.icon;
+            iconPreview.className = command.icon;
             promptInput.value = command.prompt;
         } else {
             nameInput.value = '';
+            iconInput.value = 'fa-solid fa-terminal';
+            iconPreview.className = 'fa-solid fa-terminal';
             promptInput.value = '';
         }
         
-        modal.style.display = 'block';
+        modal.style.display = 'flex';
+    }
+
+    private hideCommandModal(): void {
+        const modal = document.getElementById('command-modal') as HTMLElement;
+        modal.style.display = 'none';
     }
 
     private async saveCommand(): Promise<void> {
         const nameInput = document.getElementById('command-name') as HTMLInputElement;
+        const iconInput = document.getElementById('command-icon') as HTMLInputElement;
         const promptInput = document.getElementById('command-prompt') as HTMLTextAreaElement;
+        const modal = document.getElementById('command-modal') as HTMLElement;
         
         if (!nameInput.value || !promptInput.value) {
-            alert('Please fill in all fields');
+            this.showMessage('Please fill in all fields', true);
             return;
         }
         
         const command: Command = {
             name: nameInput.value,
+            icon: iconInput.value || 'fa-solid fa-terminal',
             prompt: promptInput.value
         };
         
@@ -397,8 +460,6 @@ class OptionsManager {
         
         await this.saveSettings();
         this.updateCommandsList();
-        
-        const modal = document.getElementById('command-modal') as HTMLElement;
         modal.style.display = 'none';
     }
 
@@ -619,64 +680,82 @@ class OptionsManager {
         }
     }
 
-    private showProviderModal(provider?: LLMProvider): void {
-        const modal = document.getElementById('provider-modal');
-        if (!modal) return;
-
-        // Reset form
-        const nameInput = document.getElementById('provider-name') as HTMLInputElement;
+    private async updateModelsList(): Promise<void> {
         const typeSelect = document.getElementById('provider-type') as HTMLSelectElement;
+        const modelSelect = document.getElementById('provider-model') as HTMLSelectElement;
+        const type = typeSelect.value as ProviderType;
+        
+        // Clear current options
+        modelSelect.innerHTML = '';
+        
+        try {
+            // Get available models
+            const models = LLMProviderFactory.getAvailableModels(type);
+            
+            // Add options for each model
+            models.forEach(model => {
+                const option = document.createElement('option');
+                option.value = model;
+                option.textContent = model;
+                modelSelect.appendChild(option);
+            });
+            
+            // Set default model if none selected
+            if (!modelSelect.value) {
+                modelSelect.value = LLMProviderFactory.getDefaultModel(type);
+            }
+        } catch (error) {
+            this.logger.error('Failed to update models list', { error });
+        }
+    }
+
+    private showProviderModal(provider?: LLMProvider): void {
+        const modal = document.getElementById('provider-modal') as HTMLElement;
+        const title = modal.querySelector('h2') as HTMLElement;
+        const typeSelect = document.getElementById('provider-type') as HTMLSelectElement;
+        const nameInput = document.getElementById('provider-name') as HTMLInputElement;
         const apiKeyInput = document.getElementById('provider-apikey') as HTMLInputElement;
         const endpointInput = document.getElementById('provider-endpoint') as HTMLInputElement;
         const modelSelect = document.getElementById('provider-model') as HTMLSelectElement;
+
+        // Reset form
+        title.textContent = provider ? 'Edit Provider' : 'Add Provider';
         
-        this.logger.debug('Opening provider modal', {
-            provider: provider ? {
-                type: provider.type,
-                name: provider.name,
-                model: provider.model
-            } : 'new provider'
-        });
-        
-        // Populate provider types with correct capitalization
-        typeSelect.innerHTML = '';
-        
-        PROVIDER_TYPES.forEach(type => {
-            const option = document.createElement('option');
-            option.value = type;
-            option.textContent = LLMProviderFactory.getProviderName(type);
-            typeSelect.appendChild(option);
-        });
-        
-        if (provider) {
-            nameInput.value = provider.name;
-            typeSelect.value = provider.type;
-            apiKeyInput.value = provider.apiKey || '';
-            endpointInput.value = provider.endpoint || '';
-            modelSelect.value = provider.model || '';
-        } else {
-            nameInput.value = '';
-            typeSelect.value = PROVIDER_TYPES[0];
-            apiKeyInput.value = '';
-            endpointInput.value = '';
-            modelSelect.value = '';
+        // Populate provider types if empty
+        if (typeSelect.children.length === 0) {
+            PROVIDER_TYPES.forEach(type => {
+                const option = document.createElement('option');
+                option.value = type;
+                option.textContent = LLMProviderFactory.getProviderName(type);
+                typeSelect.appendChild(option);
+            });
         }
 
-        // Important: First update fields, then update models list
+        // Set initial values
+        typeSelect.value = provider?.type || PROVIDER_TYPES[0];
+        nameInput.value = provider?.name || LLMProviderFactory.getProviderName(typeSelect.value as ProviderType);
+        apiKeyInput.value = provider?.apiKey || '';
+        endpointInput.value = provider?.endpoint || LLMProviderFactory.getDefaultEndpoint(typeSelect.value as ProviderType);
+        
+        // Add type change handler
+        typeSelect.onchange = () => {
+            const selectedType = typeSelect.value as ProviderType;
+            nameInput.value = LLMProviderFactory.getProviderName(selectedType);
+            endpointInput.value = LLMProviderFactory.getDefaultEndpoint(selectedType);
+            this.updateProviderFields();
+            this.updateModelsList();
+        };
+
+        // Update fields visibility and models list
         this.updateProviderFields();
         this.updateModelsList();
+
         modal.style.display = 'flex';
     }
 
     private hideProviderModal(): void {
-        const modal = document.getElementById('provider-modal');
-        if (!modal) return;
-
+        const modal = document.getElementById('provider-modal') as HTMLElement;
         modal.style.display = 'none';
-        const messageContainer = document.getElementById('modal-message');
-        if (messageContainer) {
-            messageContainer.style.display = 'none';
-        }
     }
 
     private updateProviderName(): void {
@@ -734,41 +813,6 @@ class OptionsManager {
                 endpointInput.value = defaultEndpoint;
             }
         }
-    }
-
-    private updateModelsList(): void {
-        const typeSelect = document.getElementById('provider-type') as HTMLSelectElement;
-        const modelSelect = document.getElementById('provider-model') as HTMLSelectElement;
-        
-        if (!modelSelect) {
-            this.logger.error('Failed to find model select element', {
-                modelSelect: !!modelSelect
-            });
-            return;
-        }
-
-        const type = typeSelect.value as ProviderType;
-        const models = LLMProviderFactory.getAvailableModels(type);
-        const defaultModel = LLMProviderFactory.getDefaultModel(type);
-
-        this.logger.debug('Updating models list', {
-            type,
-            models,
-            defaultModel,
-            currentValue: modelSelect.value
-        });
-
-        // Clear and populate the select element
-        modelSelect.innerHTML = '';
-        models.forEach(model => {
-            const option = document.createElement('option');
-            option.value = model;
-            option.textContent = model;
-            if (model === defaultModel) {
-                option.selected = true;
-            }
-            modelSelect.appendChild(option);
-        });
     }
 
     private setLoading(button: HTMLButtonElement, loading: boolean): void {

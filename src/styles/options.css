@@ -268,52 +268,83 @@ body {
   right: 0;
   bottom: 0;
   background-color: rgba(0, 0, 0, 0.5);
-  display: flex;
+  display: none;
   align-items: center;
   justify-content: center;
   z-index: 1000;
 }
 
+.modal.show,
+.modal[style*="display: flex"] {
+  animation: modalFadeIn 0.2s ease-out;
+}
+
+@keyframes modalFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .modal-content {
   background-color: white;
-  border-radius: 0.75rem;
-  width: 100%;
+  border-radius: var(--border-radius);
+  width: 90%;
   max-width: 500px;
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+  padding: 2rem;
+  position: relative;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
 }
 
-.modal-header {
-  padding: 1.5rem;
-  border-bottom: 1px solid var(--gray-200);
+/* Command List Styles */
+.commands-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 300px;
+  overflow-y: auto;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--border-radius);
+  background: white;
 }
 
-.modal-header-content {
+.command-item {
   display: flex;
   align-items: center;
-  gap: 1rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--gray-200);
+  cursor: pointer;
+  transition: all 0.2s ease;
 }
 
-.modal-icon {
-  font-size: 1.75rem;
+.command-item:last-child {
+  border-bottom: none;
+}
+
+.command-item i {
+  width: 20px;
+  margin-right: 12px;
   color: var(--purple-600);
+  font-size: 14px;
+  text-align: center;
 }
 
-.modal-header h2 {
-  font-size: 1.25rem;
-  font-weight: 600;
-  color: var(--gray-900);
+.command-item:hover {
+  background-color: var(--purple-50);
 }
 
-.modal-body {
-  padding: 1.5rem;
+.command-item.selected {
+  background-color: var(--purple-100);
+  color: var(--purple-700);
 }
 
-.modal-footer {
-  padding: 1.5rem;
-  border-top: 1px solid var(--gray-200);
-  display: flex;
-  justify-content: flex-end;
-  gap: 0.75rem;
+.command-item:hover i,
+.command-item.selected i {
+  color: var(--purple-700);
 }
 
 /* Message Styles */
@@ -477,3 +508,27 @@ body {
 .log-entry.debug .log-level { color: var(--gray-600); }
 .log-entry.error .log-level { color: #dc2626; }
 .log-entry.llm .log-level { color: #059669; }
+
+/* Icon Preview Styles */
+.icon-select-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.icon-select-wrapper input {
+  flex: 1;
+}
+
+.icon-select-wrapper i {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--purple-600);
+  font-size: 16px;
+  background: var(--purple-50);
+  border-radius: var(--border-radius);
+  padding: 4px;
+}
