@@ -189,6 +189,9 @@ class OptionsManager {
         // Initialize navigation
         initializeNavigation();
 
+        // Initialize custom dropdowns
+        this.initializeModelDropdown();
+
         // Provider management
         document.getElementById('add-provider')?.addEventListener('click', async () => {
             await this.logger.info('Opening add provider modal');
@@ -324,6 +327,84 @@ class OptionsManager {
                 await this.logger.debug('Provider selected', { index: this.selectedProviderIndex });
                 this.updateProviderButtons();
             });
+        }
+    }
+
+    private initializeModelDropdown(): void {
+        const modelInput = document.getElementById('provider-model') as HTMLInputElement;
+        const modelList = document.getElementById('provider-model-list') as HTMLDivElement;
+        let currentModels: string[] = [];
+
+        const updateModelsForType = (type: ProviderType) => {
+            currentModels = LLMProviderFactory.getAvailableModels(type);
+            this.updateModelListItems(currentModels, modelList, modelInput);
+            modelInput.value = LLMProviderFactory.getDefaultModel(type);
+        };
+
+        // Toggle dropdown on input focus
+        modelInput.addEventListener('focus', () => {
+            modelList.classList.add('show');
+        });
+
+        // Hide dropdown when clicking outside
+        document.addEventListener('click', (event) => {
+            if (!modelInput.contains(event.target as Node) && !modelList.contains(event.target as Node)) {
+                modelList.classList.remove('show');
+            }
+        });
+
+        // Handle input changes
+        modelInput.addEventListener('input', () => {
+            const value = modelInput.value.toLowerCase();
+            
+            // Filter and update dropdown items
+            const filteredModels = currentModels.filter(model => 
+                model.toLowerCase().includes(value)
+            );
+            
+            this.updateModelListItems(filteredModels, modelList, modelInput);
+        });
+
+        // Initialize dropdown items when provider type changes
+        const typeSelect = document.getElementById('provider-type') as HTMLSelectElement;
+        typeSelect.addEventListener('change', () => {
+            const type = typeSelect.value as ProviderType;
+            updateModelsForType(type);
+        });
+
+        // Export the update function so we can call it from showProviderModal
+        this.updateModelsForType = updateModelsForType;
+    }
+
+    private updateModelsForType: ((type: ProviderType) => void) | null = null;
+
+    private updateModelListItems(models: string[], modelList: HTMLDivElement, modelInput: HTMLInputElement): void {
+        // Clear current items
+        modelList.innerHTML = '';
+        
+        // Add new items
+        models.forEach(model => {
+            const item = document.createElement('div');
+            item.className = 'dropdown-item';
+            if (model === modelInput.value) {
+                item.classList.add('selected');
+            }
+            item.textContent = model;
+            
+            // Handle item click
+            item.addEventListener('click', () => {
+                modelInput.value = model;
+                modelList.classList.remove('show');
+            });
+            
+            modelList.appendChild(item);
+        });
+        
+        // Show/hide dropdown based on whether there are items
+        if (models.length > 0) {
+            modelList.classList.add('show');
+        } else {
+            modelList.classList.remove('show');
         }
     }
 
@@ -683,58 +764,39 @@ class OptionsManager {
     private async saveProviderModal(): Promise<void> {
         const typeSelect = document.getElementById('provider-type') as HTMLSelectElement;
         const nameInput = document.getElementById('provider-name') as HTMLInputElement;
-        const endpointInput = document.getElementById('provider-endpoint') as HTMLInputElement;
         const apiKeyInput = document.getElementById('provider-apikey') as HTMLInputElement;
-        const modelSelect = document.getElementById('provider-model') as HTMLSelectElement;
-        const saveButton = document.getElementById('modal-save') as HTMLButtonElement;
+        const endpointInput = document.getElementById('provider-endpoint') as HTMLInputElement;
+        const modelInput = document.getElementById('provider-model') as HTMLInputElement;
 
-        try {
-            this.setLoading(saveButton, true);
-            const type = typeSelect.value as ProviderType;
-            const isLocal = this.isLocalProvider(type);
+        const type = typeSelect.value as ProviderType;
+        const name = nameInput.value;
+        const apiKey = apiKeyInput.value;
+        const endpoint = endpointInput.value;
+        const model = modelInput.value;
 
-            if (!nameInput.value) {
-                throw new Error('Provider name is required');
-            }
-
-            if (isLocal && !endpointInput.value) {
-                throw new Error('Endpoint is required');
-            }
-
-            if (!isLocal && !apiKeyInput.value) {
-                throw new Error('API key is required');
-            }
-
-            const provider: LLMProvider = {
-                type,
-                name: nameInput.value,
-                model: modelSelect.value || this.getProviderInstance(type).defaultModel
-            };
-
-            if (isLocal) {
-                provider.endpoint = endpointInput.value;
-            } else {
-                provider.apiKey = apiKeyInput.value;
-            }
-
-            if (this.selectedProviderIndex !== -1) {
-                this.providers[this.selectedProviderIndex] = provider;
-                await this.logger.info('Provider updated', { name: provider.name, type: provider.type });
-            } else {
-                this.providers.push(provider);
-                await this.logger.info('New provider added', { name: provider.name, type: provider.type });
-            }
-
-            await this.saveSettings();
-            this.renderProviders();
-            this.hideProviderModal();
-        } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : 'Failed to save provider';
-            this.showMessage(errorMessage, true);
-            await this.logger.error('Failed to save provider', { error });
-        } finally {
-            this.setLoading(saveButton, false);
+        if (!name || !model) {
+            this.showMessage('Please fill in all required fields', true);
+            return;
         }
+
+        // Create or update provider
+        const provider: LLMProvider = {
+            type,
+            name,
+            apiKey,
+            endpoint,
+            model
+        };
+
+        if (this.selectedProviderIndex !== -1) {
+            this.providers[this.selectedProviderIndex] = provider;
+        } else {
+            this.providers.push(provider);
+        }
+
+        await this.saveSettings();
+        this.renderProviders();
+        this.hideProviderModal();
     }
 
     private renderProviders(): void {
@@ -799,7 +861,7 @@ class OptionsManager {
         const nameInput = document.getElementById('provider-name') as HTMLInputElement;
         const apiKeyInput = document.getElementById('provider-apikey') as HTMLInputElement;
         const endpointInput = document.getElementById('provider-endpoint') as HTMLInputElement;
-        const modelSelect = document.getElementById('provider-model') as HTMLSelectElement;
+        const modelInput = document.getElementById('provider-model') as HTMLInputElement;
 
         // Reset form
         title.textContent = provider ? 'Edit Provider' : 'Add Provider';
@@ -815,10 +877,21 @@ class OptionsManager {
         }
 
         // Set initial values
-        typeSelect.value = provider?.type || PROVIDER_TYPES[0];
-        nameInput.value = provider?.name || LLMProviderFactory.getProviderName(typeSelect.value as ProviderType);
+        const initialType = (provider?.type || PROVIDER_TYPES[0]) as ProviderType;
+        typeSelect.value = initialType;
+        nameInput.value = provider?.name || LLMProviderFactory.getProviderName(initialType);
         apiKeyInput.value = provider?.apiKey || '';
-        endpointInput.value = provider?.endpoint || LLMProviderFactory.getDefaultEndpoint(typeSelect.value as ProviderType);
+        endpointInput.value = provider?.endpoint || LLMProviderFactory.getDefaultEndpoint(initialType);
+        
+        // Initialize models for the current type
+        if (this.updateModelsForType) {
+            this.updateModelsForType(initialType);
+        }
+        
+        // If editing, set the specific model after populating the list
+        if (provider?.model) {
+            modelInput.value = provider.model;
+        }
         
         // Add type change handler
         typeSelect.onchange = () => {
@@ -826,12 +899,10 @@ class OptionsManager {
             nameInput.value = LLMProviderFactory.getProviderName(selectedType);
             endpointInput.value = LLMProviderFactory.getDefaultEndpoint(selectedType);
             this.updateProviderFields();
-            this.updateModelsList();
         };
 
-        // Update fields visibility and models list
+        // Update fields visibility
         this.updateProviderFields();
-        this.updateModelsList();
 
         modal.style.display = 'flex';
     }
