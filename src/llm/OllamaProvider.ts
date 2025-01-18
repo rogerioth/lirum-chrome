@@ -19,7 +19,6 @@ export class OllamaProvider implements LLMProvider {
     private currentModel: string;
     private readonly logger: Logger;
     private readonly ENDPOINT_PATTERN = /^https?:\/\/[^\s/$.?#].[^\s]*$/i;
-    private initialized = false;
 
     constructor() {
         this.currentModel = this.defaultModel;
@@ -46,181 +45,128 @@ export class OllamaProvider implements LLMProvider {
         };
     }
 
-    async initialize(apiKey?: string, endpoint?: string): Promise<void> {
+    async test(apiKey?: string, endpoint?: string): Promise<void> {
         try {
-            this.endpoint = endpoint || this.defaultEndpoint;
-            const url = `${this.endpoint}/api/version`;
+            const testEndpoint = endpoint || this.defaultEndpoint;
+            if (!this.validateEndpoint(testEndpoint)) {
+                throw new Error('Invalid endpoint URL format. Please provide a valid HTTP/HTTPS URL.');
+            }
 
-            await this.logger.info('Testing Ollama endpoint', {
-                url,
+            // Test the endpoint with a simple models list request
+            const response = await this.fetchWithExtension(`${testEndpoint}/api/tags`, {
                 method: 'GET',
                 headers: this.getHeaders()
-            });
-
-            const response = await this.fetchWithExtension(url, {
-                method: 'GET',
-                headers: this.getHeaders()
-            });
-
-            const responseText = await response.text();
-            await this.logger.debug('Raw Ollama response', {
-                url,
-                status: response.status,
-                statusText: response.statusText,
-                rawResponse: responseText
             });
 
             if (!response.ok) {
-                throw new Error(`Ollama API request failed with status ${response.status}: ${responseText}`);
+                const error = await response.json();
+                throw new Error(error.error?.message || 'Failed to validate endpoint');
             }
 
-            let data;
-            try {
-                data = JSON.parse(responseText);
-            } catch (parseError) {
-                await this.logger.error('Failed to parse Ollama response', {
-                    url,
-                    status: response.status,
-                    rawResponse: responseText,
-                    parseError: parseError instanceof Error ? parseError.message : String(parseError)
-                });
-                throw new Error(`Invalid JSON response from Ollama API: ${responseText}`);
-            }
-
-            this.initialized = true;
-            await this.logger.info('Ollama endpoint test successful', { version: data.version });
-
-            await this.fetchAvailableModels();
+            await this.logger.info('Ollama provider validated successfully');
         } catch (error) {
-            this.initialized = false;
-            this.endpoint = null;
-            if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
-                throw new Error(`Failed to connect to Ollama endpoint: ${this.endpoint} - Is Ollama running?`);
+            if (error instanceof Error) {
+                throw new Error(`Ollama endpoint validation failed: ${error.message}`);
             }
             throw error;
         }
     }
 
-    private async fetchAvailableModels(): Promise<void> {
-        try {
-            const url = `${this.endpoint}/api/tags`;
-            const response = await this.fetchWithExtension(url, {
-                method: 'GET',
-                headers: this.getHeaders()
-            });
-
-            if (response.ok) {
-                const data = await response.json();
-                if (Array.isArray(data.models)) {
-                    this.availableModels = data.models.map(model => model.name);
-                    await this.logger.info('Updated available models', { models: this.availableModels });
-                }
-            }
-        } catch (error) {
-            await this.logger.info('Failed to fetch available models', { error });
-            // Don't throw - just keep default models list
+    async complete(prompt: string, options: LLMOptions = {}): Promise<LLMResponse> {
+        // Load configuration
+        const config = await chrome.storage.local.get('ollama_provider_config');
+        const providerConfig = config['ollama_provider_config'];
+        
+        if (!providerConfig?.endpoint) {
+            throw new Error('Ollama provider not configured. Please configure the endpoint in settings.');
         }
-    }
 
-    async complete(prompt: string, options?: LLMOptions): Promise<LLMResponse> {
-        try {
-            if (!this.endpoint || !this.initialized) {
-                throw new Error('Ollama provider not initialized. Please provide a valid endpoint.');
+        const requestBody = {
+            model: providerConfig.model || this.defaultModel,
+            prompt,
+            stream: false,
+            temperature: options.temperature ?? 0.7,
+            top_p: options.topP ?? 1,
+            stop: options.stop,
+            max_tokens: options.maxTokens
+        };
+
+        const url = `${providerConfig.endpoint}/api/generate`;
+
+        await this.logger.info('Sending request to Ollama', {
+            url,
+            method: 'POST',
+            headers: this.getHeaders(),
+            body: requestBody
+        });
+
+        const response = await this.fetchWithExtension(url, {
+            method: 'POST',
+            headers: this.getHeaders(),
+            body: JSON.stringify(requestBody)
+        });
+
+        await this.logger.debug('Raw Ollama response', {
+            url,
+            status: response.status,
+            statusText: response.statusText,
+            type: response.type
+        });
+
+        // For opaque responses (no-cors mode), we can't read the response
+        // but if the status is 0, it means the request was sent successfully
+        if (response.type === 'opaque' || response.type === 'opaqueredirect') {
+            if (response.status === 0) {
+                return {
+                    content: "Request sent successfully, but response cannot be read due to CORS restrictions. The model should be processing your request.",
+                    model: providerConfig.model || this.defaultModel,
+                    usage: {
+                        promptTokens: 0,
+                        completionTokens: 0,
+                        totalTokens: 0
+                    },
+                    raw: {}
+                };
             }
+            throw new Error('Request failed due to CORS restrictions. Try running Ollama with CORS enabled.');
+        }
 
-            const url = `${this.endpoint}/api/generate`;
-            const requestBody = {
-                model: this.currentModel,
-                prompt,
-                stream: false,
-                temperature: options?.temperature ?? 0.7,
-                top_p: options?.topP ?? 1,
-                stop: options?.stop,
-                max_tokens: options?.maxTokens
-            };
+        const responseText = await response.text();
+        if (!response.ok) {
+            throw new Error(`Ollama API request failed with status ${response.status}: ${responseText}`);
+        }
 
-            await this.logger.info('Sending request to Ollama', {
-                url,
-                method: 'POST',
-                headers: this.getHeaders(),
-                body: requestBody
-            });
-
-            const response = await this.fetchWithExtension(url, {
-                method: 'POST',
-                headers: this.getHeaders(),
-                body: JSON.stringify(requestBody)
-            });
-
-            await this.logger.debug('Raw Ollama response', {
+        let data;
+        try {
+            data = JSON.parse(responseText);
+        } catch (error) {
+            await this.logger.error('Failed to parse Ollama response', {
                 url,
                 status: response.status,
-                statusText: response.statusText,
-                type: response.type
+                rawResponse: responseText,
+                error: error instanceof Error ? error.message : String(error)
             });
-
-            // For opaque responses (no-cors mode), we can't read the response
-            // but if the status is 0, it means the request was sent successfully
-            if (response.type === 'opaque' || response.type === 'opaqueredirect') {
-                if (response.status === 0) {
-                    return {
-                        content: "Request sent successfully, but response cannot be read due to CORS restrictions. The model should be processing your request.",
-                        model: this.currentModel,
-                        usage: {
-                            promptTokens: 0,
-                            completionTokens: 0,
-                            totalTokens: 0
-                        },
-                        raw: {}
-                    };
-                }
-                throw new Error('Request failed due to CORS restrictions. Try running Ollama with CORS enabled.');
-            }
-
-            const responseText = await response.text();
-            if (!response.ok) {
-                throw new Error(`Ollama API request failed with status ${response.status}: ${responseText}`);
-            }
-
-            let data;
-            try {
-                data = JSON.parse(responseText);
-            } catch (error) {
-                await this.logger.error('Failed to parse Ollama response', {
-                    url,
-                    status: response.status,
-                    rawResponse: responseText,
-                    error: error instanceof Error ? error.message : String(error)
-                });
-                throw new Error('Invalid JSON response from Ollama API');
-            }
-
-            return {
-                content: data.response,
-                model: this.currentModel,
-                usage: {
-                    promptTokens: data.prompt_eval_count,
-                    completionTokens: data.eval_count,
-                    totalTokens: data.prompt_eval_count + data.eval_count
-                },
-                raw: data
-            };
-        } catch (error) {
-            await this.logger.error('Ollama request failed', { error });
-            throw error;
+            throw new Error('Invalid JSON response from Ollama API');
         }
-    }
 
-    isInitialized(): boolean {
-        return this.initialized;
+        return {
+            content: data.response,
+            model: providerConfig.model || this.defaultModel,
+            usage: {
+                promptTokens: data.prompt_eval_count,
+                completionTokens: data.eval_count,
+                totalTokens: data.prompt_eval_count + data.eval_count
+            },
+            raw: data
+        };
     }
 
     getCurrentModel(): string {
-        return this.currentModel;
+        return this.defaultModel; // Return default model since current model is loaded from config
     }
 
     setModel(model: string): void {
-        this.currentModel = model;
+        // Do nothing since the model is now loaded from the configuration
     }
 
     validateEndpoint(endpoint: string): boolean {

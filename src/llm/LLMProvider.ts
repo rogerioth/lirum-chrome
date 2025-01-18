@@ -26,9 +26,8 @@ export interface LLMProvider {
   availableModels: string[];
   defaultEndpoint?: string;
 
-  initialize(apiKey?: string, endpoint?: string): Promise<void>;
+  test(apiKey?: string, endpoint?: string): Promise<void>;
   complete(prompt: string, options?: LLMOptions): Promise<LLMResponse>;
-  isInitialized(): boolean;
   getCurrentModel(): string;
   setModel(model: string): void;
   validateApiKey?(apiKey: string): boolean;

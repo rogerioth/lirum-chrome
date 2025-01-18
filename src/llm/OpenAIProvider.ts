@@ -58,7 +58,7 @@ export class OpenAIProvider implements LLMProvider {
     }
   }
 
-  async initialize(apiKey?: string, endpoint?: string): Promise<void> {
+  async test(apiKey?: string, endpoint?: string): Promise<void> {
     if (!apiKey || !this.validateApiKey(apiKey)) {
       throw new Error('Invalid API key format. Key should be at least 5 characters long.');
     }
@@ -76,9 +76,15 @@ export class OpenAIProvider implements LLMProvider {
         throw new Error(error.error?.message || 'Failed to validate API key');
       }
 
-      this.apiKey = apiKey;
-      await this.saveState();
-      await this.logger.info('OpenAI provider initialized');
+      // Store configuration after successful test
+      await chrome.storage.local.set({
+        'openai_provider_config': {
+          apiKey,
+          model: this.defaultModel
+        }
+      });
+
+      await this.logger.info('OpenAI provider validated successfully');
     } catch (error) {
       if (error instanceof Error) {
         throw new Error(`OpenAI API key validation failed: ${error.message}`);
@@ -88,12 +94,9 @@ export class OpenAIProvider implements LLMProvider {
   }
 
   async complete(prompt: string, options: LLMOptions = {}): Promise<LLMResponse> {
-    if (!this.isInitialized()) {
-      // Try to load state one more time
-      await this.loadState();
-      if (!this.isInitialized()) {
-        throw new Error('OpenAI provider not initialized. Please provide a valid API key.');
-      }
+    await this.loadState();
+    if (!this.apiKey) {
+      throw new Error('OpenAI provider not configured. Please provide a valid API key in settings.');
     }
 
     const requestBody = {
@@ -149,12 +152,8 @@ export class OpenAIProvider implements LLMProvider {
     }
   }
 
-  isInitialized(): boolean {
-    return this.apiKey !== null;
-  }
-
   getCurrentModel(): string {
-    return this.currentModel;
+    return this.defaultModel; // Return default model since current model is loaded from config
   }
 
   setModel(model: string): void {

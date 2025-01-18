@@ -149,27 +149,34 @@ class OptionsManager {
                 throw new Error('Permission to access the endpoint was denied. Please grant permission to test the connection.');
             }
 
-            // Initialize provider with appropriate parameters based on type
+            // Test the provider configuration
             if (isLocal) {
-                await provider.initialize(undefined, endpointInput.value);
+                await provider.test(undefined, endpointInput.value);
             } else {
-                await provider.initialize(apiKeyInput.value);
+                await provider.test(apiKeyInput.value);
             }
 
-            // Set model if provided (no validation)
-            const modelToUse = modelSelect.value || provider.defaultModel;
-            provider.setModel(modelToUse);
-
-            const response = await provider.complete('Hello! Please respond with a short greeting.');
-            
-            await this.logger.info('Provider test successful', {
+            // Save provider configuration after successful test
+            const config = {
                 type,
-                model: modelToUse,
+                name: provider.name,
                 endpoint: endpointInput.value,
-                response: response.content
+                apiKey: !isLocal ? apiKeyInput.value : undefined,
+                model: modelSelect.value || provider.defaultModel
+            };
+
+            // Save to chrome.storage
+            await chrome.storage.local.set({
+                [`${type}_provider_config`]: config
             });
 
-            this.showMessage(`Connection test successful!\nEndpoint: ${endpointInput.value}\nModel: ${modelToUse}\nResponse: ${response.content}`, false, true);
+            await this.logger.info('Provider configuration saved', {
+                type,
+                model: config.model,
+                endpoint: config.endpoint
+            });
+
+            this.showMessage(`Provider configuration saved successfully!\nEndpoint: ${config.endpoint}\nModel: ${config.model}`, false, true);
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : 'Test failed';
             await this.logger.error('Provider test failed', {

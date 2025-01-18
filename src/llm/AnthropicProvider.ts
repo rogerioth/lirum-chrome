@@ -13,7 +13,6 @@ export class AnthropicProvider implements LLMProvider {
     'claude-3-haiku-20240307'
   ];
 
-  private apiKey: string | null = null;
   private currentModel: string;
   private readonly logger: Logger;
   private readonly API_URL = 'https://api.anthropic.com/v1/messages';
@@ -25,7 +24,7 @@ export class AnthropicProvider implements LLMProvider {
     this.logger = Logger.getInstance();
   }
 
-  async initialize(apiKey?: string, endpoint?: string): Promise<void> {
+  async test(apiKey?: string, endpoint?: string): Promise<void> {
     if (!apiKey || !this.validateApiKey(apiKey)) {
       throw new Error('Invalid API key format. Key should be at least 5 characters long.');
     }
@@ -45,8 +44,7 @@ export class AnthropicProvider implements LLMProvider {
         throw new Error(error.error?.message || 'Failed to validate API key');
       }
 
-      this.apiKey = apiKey;
-      await this.logger.info('Anthropic provider initialized');
+      await this.logger.info('Anthropic provider validated successfully');
     } catch (error) {
       if (error instanceof Error) {
         throw new Error(`Anthropic API key validation failed: ${error.message}`);
@@ -56,8 +54,12 @@ export class AnthropicProvider implements LLMProvider {
   }
 
   async complete(prompt: string, options: LLMOptions = {}): Promise<LLMResponse> {
-    if (!this.isInitialized()) {
-      throw new Error('Anthropic provider not initialized. Please provide a valid API key.');
+    // Load configuration
+    const config = await chrome.storage.local.get('anthropic_provider_config');
+    const providerConfig = config['anthropic_provider_config'];
+    
+    if (!providerConfig?.apiKey) {
+      throw new Error('Anthropic provider not configured. Please provide a valid API key in settings.');
     }
 
     const requestBody = {
@@ -74,7 +76,7 @@ export class AnthropicProvider implements LLMProvider {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-api-key': this.apiKey!,
+          'x-api-key': providerConfig.apiKey,
           'anthropic-version': this.API_VERSION,
           'anthropic-dangerous-direct-browser-access': 'true'
         },
@@ -113,12 +115,8 @@ export class AnthropicProvider implements LLMProvider {
     }
   }
 
-  isInitialized(): boolean {
-    return this.apiKey !== null;
-  }
-
   getCurrentModel(): string {
-    return this.currentModel;
+    return this.defaultModel; // Return default model since current model is loaded from config
   }
 
   setModel(model: string): void {

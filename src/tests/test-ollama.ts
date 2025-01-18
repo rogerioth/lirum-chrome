@@ -78,9 +78,18 @@ async function testOllama() {
     const provider = new TestOllamaProvider();
     
     try {
-        // Initialize provider with endpoint
-        console.log('\nInitializing provider...');
-        await provider.initialize(undefined, endpoint);
+        // Test provider configuration
+        console.log('\nTesting provider configuration...');
+        await provider.test(undefined, endpoint);
+        
+        // Save provider configuration to storage
+        console.log('\nSaving provider configuration...');
+        await (global as any).chrome.storage.local.set({
+            'ollama_provider_config': {
+                endpoint,
+                model
+            }
+        });
         
         // Set the model
         console.log(`\nSetting model to ${model}...`);
