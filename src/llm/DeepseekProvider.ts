@@ -6,8 +6,6 @@ export class DeepseekProvider implements LLMProvider {
   defaultModel = 'deepseek-chat';
   availableModels = ['deepseek-chat', 'deepseek-coder'];
 
-  private apiKey: string | null = null;
-  private currentModel: string;
   private readonly logger: Logger;
   private readonly API_URL = 'https://api.deepseek.com/v1/chat/completions';
   private readonly API_KEY_PATTERN = /^.{5,}$/;
@@ -16,9 +14,7 @@ export class DeepseekProvider implements LLMProvider {
   private endpoint: string = 'https://api.deepseek.com';
 
   constructor() {
-    this.currentModel = this.defaultModel;
     this.logger = Logger.getInstance();
-    this.loadState();
   }
 
   private async loadState(): Promise<void> {
@@ -26,13 +22,10 @@ export class DeepseekProvider implements LLMProvider {
       const data = await chrome.storage.local.get(this.STORAGE_KEY);
       const state = data[this.STORAGE_KEY];
       if (state) {
-        this.apiKey = state.apiKey;
-        this.endpoint = state.endpoint || this.endpoint;
-        this.currentModel = state.currentModel || this.defaultModel;
         await this.logger.debug('Deepseek provider state loaded', {
-          hasApiKey: Boolean(this.apiKey),
-          endpoint: this.endpoint,
-          currentModel: this.currentModel
+          hasApiKey: Boolean(state.apiKey),
+          endpoint: state.endpoint || this.endpoint,
+          currentModel: state.currentModel || this.defaultModel
         });
       }
     } catch (error) {
@@ -44,36 +37,30 @@ export class DeepseekProvider implements LLMProvider {
     try {
       await chrome.storage.local.set({
         [this.STORAGE_KEY]: {
-          apiKey: this.apiKey,
+          apiKey: null,
           endpoint: this.endpoint,
-          currentModel: this.currentModel
+          currentModel: this.defaultModel
         }
       });
       await this.logger.debug('Deepseek provider state saved', {
-        hasApiKey: Boolean(this.apiKey),
+        hasApiKey: false,
         endpoint: this.endpoint,
-        currentModel: this.currentModel
+        currentModel: this.defaultModel
       });
     } catch (error) {
       await this.logger.error('Failed to save Deepseek provider state', { error });
     }
   }
 
-  async initialize(apiKey?: string, endpoint?: string): Promise<void> {
+  async test(apiKey?: string, endpoint?: string): Promise<void> {
     if (!apiKey || !this.validateApiKey(apiKey)) {
       throw new Error('Invalid API key format. Key should be at least 5 characters long.');
     }
 
-    if (endpoint) {
-      if (!this.validateEndpoint(endpoint)) {
-        throw new Error('Invalid endpoint URL format. Please provide a valid HTTP/HTTPS URL.');
-      }
-      this.endpoint = endpoint;
-    }
-
     // Test the API key with a simple models list request
     try {
-      const response = await fetch(`${this.endpoint}/v1/models`, {
+      const testEndpoint = endpoint || this.endpoint;
+      const response = await fetch(`${testEndpoint}/v1/models`, {
         headers: {
           'Authorization': `Bearer ${apiKey}`
         }
@@ -84,9 +71,7 @@ export class DeepseekProvider implements LLMProvider {
         throw new Error(error.error?.message || 'Failed to validate API key');
       }
 
-      this.apiKey = apiKey;
-      await this.saveState();
-      await this.logger.info('Deepseek provider initialized');
+      await this.logger.info('Deepseek provider validated successfully');
     } catch (error) {
       if (error instanceof Error) {
         throw new Error(`Deepseek API key validation failed: ${error.message}`);
@@ -96,29 +81,31 @@ export class DeepseekProvider implements LLMProvider {
   }
 
   async complete(prompt: string, options: LLMOptions = {}): Promise<LLMResponse> {
-    if (!this.isInitialized()) {
-      // Try to load state one more time
-      await this.loadState();
-      if (!this.isInitialized()) {
-        throw new Error('Deepseek provider not initialized. Please provide a valid API key.');
-      }
+    // Load configuration
+    const config = await chrome.storage.local.get('deepseek_provider_config');
+    const providerConfig = config['deepseek_provider_config'];
+    
+    if (!providerConfig?.apiKey) {
+      throw new Error('Deepseek provider not configured. Please provide a valid API key in settings.');
     }
 
     const requestBody = {
-      model: this.currentModel,
+      model: providerConfig.model || this.defaultModel,
       messages: [{ role: 'user', content: prompt }],
-      max_tokens: options.maxTokens,
       temperature: options.temperature ?? 0.7,
+      max_tokens: options.maxTokens,
       top_p: options.topP ?? 1,
+      frequency_penalty: options.frequencyPenalty ?? 0,
+      presence_penalty: options.presencePenalty ?? 0,
       stop: options.stop
     };
 
     try {
-      const response = await fetch(`${this.endpoint}/v1/chat/completions`, {
+      const response = await fetch(`${providerConfig.endpoint || this.endpoint}/v1/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.apiKey}`
+          'Authorization': `Bearer ${providerConfig.apiKey}`
         },
         body: JSON.stringify(requestBody)
       });
@@ -135,17 +122,17 @@ export class DeepseekProvider implements LLMProvider {
       }
 
       await this.logger.llm('Deepseek completion successful', {
-        model: this.currentModel,
+        model: providerConfig.model || this.defaultModel,
         usage: data.usage
       });
 
       return {
         content: data.choices[0].message.content,
-        model: this.currentModel,
+        model: providerConfig.model || this.defaultModel,
         usage: {
-          promptTokens: data.usage?.prompt_tokens ?? 0,
-          completionTokens: data.usage?.completion_tokens ?? 0,
-          totalTokens: data.usage?.total_tokens ?? 0
+          promptTokens: data.usage.prompt_tokens,
+          completionTokens: data.usage.completion_tokens,
+          totalTokens: data.usage.total_tokens
         },
         raw: data
       };
@@ -155,20 +142,12 @@ export class DeepseekProvider implements LLMProvider {
     }
   }
 
-  isInitialized(): boolean {
-    return Boolean(this.apiKey);
-  }
-
   getCurrentModel(): string {
-    return this.currentModel;
+    return this.defaultModel; // Return default model since current model is loaded from config
   }
 
   setModel(model: string): void {
-    if (!this.availableModels.includes(model)) {
-      throw new Error(`Invalid model. Available models: ${this.availableModels.join(', ')}`);
-    }
-    this.currentModel = model;
-    this.saveState();
+    // Do nothing since model is now loaded from config
   }
 
   validateApiKey(apiKey: string): boolean {
@@ -176,6 +155,6 @@ export class DeepseekProvider implements LLMProvider {
   }
 
   validateEndpoint(endpoint: string): boolean {
-    return /^https?:\/\/[^\s/$.?#].[^\s]*$/i.test(endpoint);
+    return true; // Deepseek doesn't support custom endpoints
   }
 }

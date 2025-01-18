@@ -71,23 +71,79 @@ const Popup: React.FC = () => {
                     return;
                 }
 
-                // Load providers from storage
-                const data = await chrome.storage.sync.get('providers');
-                const storedProviders = data.providers || [];
+                // Load providers from both storage types
+                const [syncData, localData, providerConfigs] = await Promise.all([
+                    chrome.storage.sync.get('providers'),
+                    chrome.storage.local.get('providers'),
+                    chrome.storage.local.get(
+                        Object.values(LLMProviderFactory.getProviderTypes())
+                            .map(type => `${type}_provider_config`)
+                    )
+                ]);
+
+                // Start with sync providers
+                let allProviders = syncData.providers || [];
+
+                // Merge with local storage providers
+                if (localData.providers) {
+                    localData.providers.forEach(localProvider => {
+                        const existingIndex = allProviders.findIndex(p => p.type === localProvider.type);
+                        if (existingIndex !== -1) {
+                            allProviders[existingIndex] = {
+                                ...allProviders[existingIndex],
+                                ...localProvider
+                            };
+                        } else {
+                            allProviders.push(localProvider);
+                        }
+                    });
+                }
+
+                // Merge with provider-specific configs
+                Object.entries(providerConfigs).forEach(([key, config]) => {
+                    if (!config) return;
+                    const type = key.replace('_provider_config', '') as ProviderType;
+                    const existingIndex = allProviders.findIndex(p => p.type === type);
+                    
+                    if (existingIndex !== -1) {
+                        allProviders[existingIndex] = {
+                            ...allProviders[existingIndex],
+                            ...config,
+                            type,
+                            name: config.name || allProviders[existingIndex].name || LLMProviderFactory.getProviderName(type)
+                        };
+                    } else {
+                        allProviders.push({
+                            type,
+                            name: config.name || LLMProviderFactory.getProviderName(type),
+                            ...config
+                        });
+                    }
+                });
                 
-                if (!Array.isArray(storedProviders) || storedProviders.length === 0) {
+                if (!Array.isArray(allProviders) || allProviders.length === 0) {
                     throw new Error('No providers configured');
                 }
 
-                logger.debug('Loaded providers', { providers: storedProviders });
+                // Log loaded providers (with redacted API keys)
+                const redactedProviders = allProviders.map(p => ({
+                    ...p,
+                    apiKey: p.apiKey ? `${p.apiKey.slice(0,2)}....${p.apiKey.slice(-2)}` : undefined
+                }));
+                logger.info('Popup providers loaded', { count: allProviders.length, providers: redactedProviders });
 
                 // Filter valid providers
-                const validProviders = storedProviders.filter(provider => {
+                const validProviders = allProviders.filter(provider => {
                     const isValid = (provider.apiKey || provider.endpoint) && 
                                  provider.type && 
                                  Object.values(LLMProviderFactory.getProviderTypes()).includes(provider.type);
                     if (!isValid) {
-                        logger.debug('Invalid provider', { provider });
+                        logger.debug('Invalid provider', { 
+                            type: provider.type,
+                            name: provider.name,
+                            hasApiKey: Boolean(provider.apiKey),
+                            hasEndpoint: Boolean(provider.endpoint)
+                        });
                     }
                     return isValid;
                 });
@@ -96,7 +152,7 @@ const Popup: React.FC = () => {
                     throw new Error('No valid providers configured');
                 }
 
-                logger.info('Found valid providers', { count: validProviders.length, providers: validProviders });
+                logger.info('Valid providers filtered', { count: validProviders.length });
 
                 // Initialize first provider
                 const firstProvider = validProviders[0];

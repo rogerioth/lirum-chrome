@@ -6,6 +6,9 @@ export class OllamaProvider implements LLMProvider {
     defaultModel = 'llama2';
     availableModels = [
         'llama2',
+        'llama2-uncensored',
+        'llama2:13b',
+        'llama2:70b',
         'codellama',
         'mistral',
         'mixtral',
@@ -19,7 +22,6 @@ export class OllamaProvider implements LLMProvider {
     private currentModel: string;
     private readonly logger: Logger;
     private readonly ENDPOINT_PATTERN = /^https?:\/\/[^\s/$.?#].[^\s]*$/i;
-    private initialized = false;
 
     constructor() {
         this.currentModel = this.defaultModel;
@@ -27,165 +29,82 @@ export class OllamaProvider implements LLMProvider {
     }
 
     protected async fetchWithExtension(url: string, options: RequestInit): Promise<Response> {
-        const response = await chrome.runtime.sendMessage({
-            type: 'fetch',
-            url,
-            options
-        });
-        
-        return new Response(response.body, {
-            status: response.status,
-            statusText: response.statusText,
-            headers: new Headers(response.headers)
-        });
-    }
-
-    private getHeaders(): HeadersInit {
-        return {
-            'Content-Type': 'application/json'
-        };
-    }
-
-    async initialize(apiKey?: string, endpoint?: string): Promise<void> {
         try {
-            this.endpoint = endpoint || this.defaultEndpoint;
-            const url = `${this.endpoint}/api/version`;
-
-            await this.logger.info('Testing Ollama endpoint', {
-                url,
-                method: 'GET',
-                headers: this.getHeaders()
-            });
-
-            const response = await this.fetchWithExtension(url, {
-                method: 'GET',
-                headers: this.getHeaders()
-            });
-
-            const responseText = await response.text();
-            await this.logger.debug('Raw Ollama response', {
-                url,
-                status: response.status,
-                statusText: response.statusText,
-                rawResponse: responseText
-            });
-
+            const response = await fetch(url, options);
             if (!response.ok) {
-                throw new Error(`Ollama API request failed with status ${response.status}: ${responseText}`);
+                const error = await response.text();
+                throw new Error(`HTTP error! status: ${response.status}, message: ${error}`);
             }
-
-            let data;
-            try {
-                data = JSON.parse(responseText);
-            } catch (parseError) {
-                await this.logger.error('Failed to parse Ollama response', {
-                    url,
-                    status: response.status,
-                    rawResponse: responseText,
-                    parseError: parseError instanceof Error ? parseError.message : String(parseError)
-                });
-                throw new Error(`Invalid JSON response from Ollama API: ${responseText}`);
-            }
-
-            this.initialized = true;
-            await this.logger.info('Ollama endpoint test successful', { version: data.version });
-
-            await this.fetchAvailableModels();
+            return response;
         } catch (error) {
-            this.initialized = false;
-            this.endpoint = null;
-            if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
-                throw new Error(`Failed to connect to Ollama endpoint: ${this.endpoint} - Is Ollama running?`);
-            }
+            await this.logger.error('Ollama request failed', { 
+                url,
+                error: error instanceof Error ? error.message : String(error),
+                endpoint: this.endpoint 
+            });
             throw error;
         }
     }
 
-    private async fetchAvailableModels(): Promise<void> {
+    async test(apiKey?: string, endpoint?: string): Promise<void> {
         try {
-            const url = `${this.endpoint}/api/tags`;
-            const response = await this.fetchWithExtension(url, {
+            const testEndpoint = endpoint || this.defaultEndpoint;
+            if (!this.validateEndpoint(testEndpoint)) {
+                throw new Error('Invalid endpoint URL format. Please provide a valid HTTP/HTTPS URL.');
+            }
+
+            await this.logger.info('Testing Ollama connection', { endpoint: testEndpoint });
+
+            // Test the endpoint with a simple models list request
+            const response = await this.fetchWithExtension(`${testEndpoint}/api/tags`, {
                 method: 'GET',
-                headers: this.getHeaders()
+                headers: { 'Content-Type': 'application/json' }
             });
 
-            if (response.ok) {
-                const data = await response.json();
-                if (Array.isArray(data.models)) {
-                    this.availableModels = data.models.map(model => model.name);
-                    await this.logger.info('Updated available models', { models: this.availableModels });
-                }
-            }
+            const data = await response.json();
+            await this.logger.info('Ollama models available', { models: data.models });
+
         } catch (error) {
-            await this.logger.info('Failed to fetch available models', { error });
-            // Don't throw - just keep default models list
+            await this.logger.error('Ollama test failed', { 
+                endpoint: endpoint || this.defaultEndpoint,
+                error: error instanceof Error ? error.message : String(error)
+            });
+            throw error;
         }
     }
 
-    async complete(prompt: string, options?: LLMOptions): Promise<LLMResponse> {
+    async complete(prompt: string, options: LLMOptions = {}): Promise<LLMResponse> {
+        if (!this.endpoint) {
+            throw new Error('Endpoint not configured');
+        }
+
+        const model = this.currentModel;
+        await this.logger.debug('Ollama request config', { 
+            endpoint: this.endpoint,
+            model,
+            options
+        });
+
         try {
-            if (!this.endpoint || !this.initialized) {
-                throw new Error('Ollama provider not initialized. Please provide a valid endpoint.');
-            }
-
-            const url = `${this.endpoint}/api/generate`;
-            const requestBody = {
-                model: this.currentModel,
-                prompt,
-                stream: false,
-                temperature: options?.temperature ?? 0.7,
-                top_p: options?.topP ?? 1,
-                stop: options?.stop,
-                max_tokens: options?.maxTokens
-            };
-
-            await this.logger.info('Sending request to Ollama', {
-                url,
+            const response = await this.fetchWithExtension(`${this.endpoint}/api/generate`, {
                 method: 'POST',
-                headers: this.getHeaders(),
-                body: requestBody
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    model,
+                    prompt,
+                    stream: false,
+                    temperature: options.temperature || 0.7,
+                    top_p: 1,
+                    max_tokens: options.maxTokens || 1000
+                })
             });
 
-            const response = await this.fetchWithExtension(url, {
-                method: 'POST',
-                headers: this.getHeaders(),
-                body: JSON.stringify(requestBody)
-            });
-
-            const responseText = await response.text();
-            await this.logger.debug('Raw Ollama response', {
-                url,
-                status: response.status,
-                statusText: response.statusText,
-                rawResponse: responseText
-            });
-
-            if (!response.ok) {
-                throw new Error(`Ollama API request failed with status ${response.status}: ${responseText}`);
-            }
-
-            let data;
-            try {
-                data = JSON.parse(responseText);
-            } catch (parseError) {
-                await this.logger.error('Failed to parse Ollama response', {
-                    url,
-                    status: response.status,
-                    rawResponse: responseText,
-                    parseError: parseError instanceof Error ? parseError.message : String(parseError)
-                });
-                throw new Error(`Invalid JSON response from Ollama API: ${responseText}`);
-            }
-
-            if (!data.response) {
-                throw new Error('Invalid response format from Ollama API: missing response field');
-            }
-
-            await this.logger.info('Ollama response received', { data });
-
+            const data = await response.json();
             return {
                 content: data.response,
-                model: this.currentModel,
+                model,
                 usage: {
                     promptTokens: data.prompt_eval_count || 0,
                     completionTokens: data.eval_count || 0,
@@ -194,13 +113,13 @@ export class OllamaProvider implements LLMProvider {
                 raw: data
             };
         } catch (error) {
-            await this.logger.error('Ollama request failed', { error });
+            await this.logger.error('Ollama completion failed', { 
+                endpoint: this.endpoint,
+                model,
+                error: error instanceof Error ? error.message : String(error)
+            });
             throw error;
         }
-    }
-
-    isInitialized(): boolean {
-        return this.initialized;
     }
 
     getCurrentModel(): string {
@@ -208,14 +127,20 @@ export class OllamaProvider implements LLMProvider {
     }
 
     setModel(model: string): void {
+        // Allow any model name since Ollama supports custom models
         this.currentModel = model;
+        this.logger.debug('Ollama model set', { model });
     }
 
     validateEndpoint(endpoint: string): boolean {
         return this.ENDPOINT_PATTERN.test(endpoint);
     }
 
-    validateApiKey(apiKey: string): boolean {
-        return true; // Not used for local providers
+    setEndpoint(endpoint: string): void {
+        if (!this.validateEndpoint(endpoint)) {
+            throw new Error('Invalid endpoint URL format');
+        }
+        this.endpoint = endpoint;
+        this.logger.debug('Ollama endpoint set', { endpoint });
     }
 }

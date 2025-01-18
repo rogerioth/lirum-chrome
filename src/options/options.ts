@@ -137,27 +137,46 @@ class OptionsManager {
                 throw new Error('Invalid API key format.');
             }
 
-            // Initialize provider with appropriate parameters based on type
-            if (isLocal) {
-                await provider.initialize(undefined, endpointInput.value);
-            } else {
-                await provider.initialize(apiKeyInput.value);
-            }
-
-            // Set model if provided (no validation)
-            const modelToUse = modelSelect.value || provider.defaultModel;
-            provider.setModel(modelToUse);
-
-            const response = await provider.complete('Hello! Please respond with a short greeting.');
+            // Request host permission for the endpoint
+            const endpointUrl = new URL(endpointInput.value);
+            const origin = endpointUrl.origin + '/*';
             
-            await this.logger.info('Provider test successful', {
-                type,
-                model: modelToUse,
-                endpoint: endpointInput.value,
-                response: response.content
+            const granted = await chrome.permissions.request({
+                origins: [origin]
             });
 
-            this.showMessage(`Connection test successful!\nEndpoint: ${endpointInput.value}\nModel: ${modelToUse}\nResponse: ${response.content}`, false, true);
+            if (!granted) {
+                throw new Error('Permission to access the endpoint was denied. Please grant permission to test the connection.');
+            }
+
+            // Test the provider configuration
+            if (isLocal) {
+                await provider.test(undefined, endpointInput.value);
+            } else {
+                await provider.test(apiKeyInput.value);
+            }
+
+            // Save provider configuration after successful test
+            const config = {
+                type,
+                name: provider.name,
+                endpoint: endpointInput.value,
+                apiKey: !isLocal ? apiKeyInput.value : undefined,
+                model: modelSelect.value || provider.defaultModel
+            };
+
+            // Save to chrome.storage
+            await chrome.storage.local.set({
+                [`${type}_provider_config`]: config
+            });
+
+            await this.logger.info('Provider configuration saved', {
+                type,
+                model: config.model,
+                endpoint: config.endpoint
+            });
+
+            this.showMessage(`Provider configuration saved successfully!\nEndpoint: ${config.endpoint}\nModel: ${config.model}`, false, true);
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : 'Test failed';
             await this.logger.error('Provider test failed', {
@@ -410,20 +429,91 @@ class OptionsManager {
 
     private async loadSettings(): Promise<void> {
         try {
-            const settings = await chrome.storage.sync.get(['providers', 'commands']);
-            
-            if (settings.providers) {
-                this.providers = settings.providers;
-                await this.logger.info('Providers loaded', { count: this.providers.length });
-            }
-
-            if (settings.commands) {
-                this.commands = settings.commands;
+            // Load commands
+            const commandSettings = await chrome.storage.sync.get(['commands']);
+            if (commandSettings.commands) {
+                this.commands = commandSettings.commands;
             } else {
                 this.commands = [...DEFAULT_COMMANDS];
             }
             await this.logger.info('Commands loaded', { count: this.commands.length });
+
+            // Initialize empty providers array
+            this.providers = [];
+
+            // Load providers from all storage locations
+            const [legacySyncSettings, legacyLocalSettings, providerConfigs] = await Promise.all([
+                chrome.storage.sync.get(['providers']),
+                chrome.storage.local.get(['providers']),
+                chrome.storage.local.get(PROVIDER_TYPES.map(type => `${type}_provider_config`))
+            ]);
+
+            // Start with sync storage providers
+            if (legacySyncSettings.providers) {
+                this.providers = [...legacySyncSettings.providers];
+                await this.logger.info('Legacy sync providers loaded', { count: this.providers.length });
+            }
+
+            // Merge with local storage providers
+            if (legacyLocalSettings.providers) {
+                // Update existing providers or add new ones
+                legacyLocalSettings.providers.forEach(localProvider => {
+                    const existingIndex = this.providers.findIndex(p => p.type === localProvider.type);
+                    if (existingIndex !== -1) {
+                        this.providers[existingIndex] = {
+                            ...this.providers[existingIndex],
+                            ...localProvider
+                        };
+                    } else {
+                        this.providers.push(localProvider);
+                    }
+                });
+                await this.logger.info('Legacy local providers merged', { count: this.providers.length });
+            }
+
+            // Finally, merge with individual provider configs
+            for (const type of PROVIDER_TYPES) {
+                const configKey = `${type}_provider_config`;
+                const config = providerConfigs[configKey];
+
+                if (config) {
+                    const existingIndex = this.providers.findIndex(p => p.type === type);
+                    
+                    if (existingIndex !== -1) {
+                        // Update existing provider with new config
+                        this.providers[existingIndex] = {
+                            ...this.providers[existingIndex],
+                            ...config,
+                            type, // Ensure type is preserved
+                            name: config.name || this.providers[existingIndex].name || LLMProviderFactory.getProviderName(type)
+                        };
+                    } else {
+                        // Add new provider
+                        this.providers.push({
+                            type,
+                            name: config.name || LLMProviderFactory.getProviderName(type),
+                            ...config
+                        });
+                    }
+                }
+            }
+
+            // Log the final state
+            const redactedProviders = this.providers.map(p => ({
+                type: p.type,
+                name: p.name,
+                hasApiKey: Boolean(p.apiKey),
+                apiKey: p.apiKey ? `${p.apiKey.slice(0,2)}....${p.apiKey.slice(-2)}` : undefined,
+                endpoint: p.endpoint,
+                model: p.model
+            }));
             
+            await this.logger.info('Options page providers loaded', { 
+                count: this.providers.length,
+                providers: redactedProviders
+            });
+            
+            // Update UI
             this.renderProviders();
             this.updateCommandsList();
         } catch (error) {
@@ -761,6 +851,14 @@ class OptionsManager {
         }
     }
 
+    private setLoading(button: HTMLButtonElement, loading: boolean): void {
+        const spinner = button.querySelector('.spinner');
+        if (spinner) {
+            button.classList.toggle('loading', loading);
+            button.disabled = loading;
+        }
+    }
+
     private async saveProviderModal(): Promise<void> {
         const typeSelect = document.getElementById('provider-type') as HTMLSelectElement;
         const nameInput = document.getElementById('provider-name') as HTMLInputElement;
@@ -779,7 +877,7 @@ class OptionsManager {
             return;
         }
 
-        // Create or update provider
+        // Create provider
         const provider: LLMProvider = {
             type,
             name,
@@ -788,15 +886,50 @@ class OptionsManager {
             model
         };
 
+        // Update providers array
         if (this.selectedProviderIndex !== -1) {
             this.providers[this.selectedProviderIndex] = provider;
         } else {
             this.providers.push(provider);
         }
 
-        await this.saveSettings();
-        this.renderProviders();
-        this.hideProviderModal();
+        try {
+            // Save in both storage types and formats
+            await Promise.all([
+                // Save in array format to both storages
+                chrome.storage.sync.set({ providers: this.providers }),
+                chrome.storage.local.set({ providers: this.providers }),
+                
+                // Save in provider-specific format
+                chrome.storage.local.set({
+                    [`${type}_provider_config`]: {
+                        apiKey,
+                        endpoint,
+                        model,
+                        name
+                    }
+                })
+            ]);
+
+            await this.logger.info('Provider configuration saved', {
+                type,
+                name,
+                hasApiKey: Boolean(apiKey),
+                hasEndpoint: Boolean(endpoint),
+                model
+            });
+
+            // Update UI
+            this.renderProviders();
+            this.hideProviderModal();
+            this.showMessage('Provider saved successfully');
+            
+            // Force reload settings to ensure everything is in sync
+            await this.loadSettings();
+        } catch (error) {
+            await this.logger.error('Failed to save provider', { error });
+            this.showMessage('Failed to save provider configuration', true);
+        }
     }
 
     private renderProviders(): void {
@@ -825,40 +958,13 @@ class OptionsManager {
         }
     }
 
-    private async updateModelsList(): Promise<void> {
-        const typeSelect = document.getElementById('provider-type') as HTMLSelectElement;
-        const modelSelect = document.getElementById('provider-model') as HTMLSelectElement;
-        const type = typeSelect.value as ProviderType;
-        
-        // Clear current options
-        modelSelect.innerHTML = '';
-        
-        try {
-            // Get available models
-            const models = LLMProviderFactory.getAvailableModels(type);
-            
-            // Add options for each model
-            models.forEach(model => {
-                const option = document.createElement('option');
-                option.value = model;
-                option.textContent = model;
-                modelSelect.appendChild(option);
-            });
-            
-            // Set default model if none selected
-            if (!modelSelect.value) {
-                modelSelect.value = LLMProviderFactory.getDefaultModel(type);
-            }
-        } catch (error) {
-            this.logger.error('Failed to update models list', { error });
-        }
-    }
-
     private showProviderModal(provider?: LLMProvider): void {
         const modal = document.getElementById('provider-modal') as HTMLElement;
         const title = modal.querySelector('h2') as HTMLElement;
         const typeSelect = document.getElementById('provider-type') as HTMLSelectElement;
         const nameInput = document.getElementById('provider-name') as HTMLInputElement;
+        const apiKeyGroup = document.getElementById('api-key-group');
+        const endpointGroup = document.getElementById('endpoint-group');
         const apiKeyInput = document.getElementById('provider-apikey') as HTMLInputElement;
         const endpointInput = document.getElementById('provider-endpoint') as HTMLInputElement;
         const modelInput = document.getElementById('provider-model') as HTMLInputElement;
@@ -930,16 +1036,33 @@ class OptionsManager {
         this.showProviderModal(provider);
     }
 
-    private removeSelectedProvider(): void {
-        const select = document.getElementById('providers-list') as HTMLSelectElement;
-        if (!select || select.selectedIndex === -1) return;
+    private async removeSelectedProvider(): Promise<void> {
+        if (this.selectedProviderIndex === -1) return;
 
-        this.selectedProviderIndex = parseInt(select.value);
-        this.providers.splice(this.selectedProviderIndex, 1);
-        this.selectedProviderIndex = -1;
-        
-        this.renderProviders();
-        this.saveSettings();
+        try {
+            const provider = this.providers[this.selectedProviderIndex];
+            const type = provider.type;
+
+            // Remove from providers array
+            this.providers.splice(this.selectedProviderIndex, 1);
+            this.selectedProviderIndex = -1;
+
+            // Remove from both storage formats
+            await Promise.all([
+                // Remove from array format
+                chrome.storage.sync.set({ providers: this.providers }),
+                
+                // Remove from provider-specific format
+                chrome.storage.local.remove(`${type}_provider_config`)
+            ]);
+
+            await this.logger.info('Provider removed', { type });
+            this.renderProviders();
+            this.showMessage('Provider removed successfully');
+        } catch (error) {
+            await this.logger.error('Failed to remove provider', { error });
+            this.showMessage('Failed to remove provider', true);
+        }
     }
 
     private updateProviderFields(): void {
@@ -966,14 +1089,6 @@ class OptionsManager {
                 endpointInput.placeholder = `Enter endpoint URL (default: ${defaultEndpoint})`;
                 endpointInput.value = defaultEndpoint;
             }
-        }
-    }
-
-    private setLoading(button: HTMLButtonElement, loading: boolean): void {
-        const spinner = button.querySelector('.spinner');
-        if (spinner) {
-            button.classList.toggle('loading', loading);
-            button.disabled = loading;
         }
     }
 }
