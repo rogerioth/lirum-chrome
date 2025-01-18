@@ -76,14 +76,16 @@ async function processContent(
     // Get provider instance and config
     const llmProvider = LLMProviderFactory.getProvider(provider);
     
-    // Try to get provider config from both formats
-    const [legacyConfig, providerConfig] = await Promise.all([
+    // Try to get provider config from both formats and storage types
+    const [legacySyncConfig, legacyLocalConfig, providerConfig] = await Promise.all([
+        chrome.storage.sync.get('providers'),
         chrome.storage.local.get('providers'),
         chrome.storage.local.get(`${provider}_provider_config`)
     ]);
 
     // Check both legacy array format and new format
-    const legacyProvider = legacyConfig.providers?.find((p: any) => p.type === provider);
+    const legacyProvider = legacySyncConfig.providers?.find((p: any) => p.type === provider) || 
+                          legacyLocalConfig.providers?.find((p: any) => p.type === provider);
     const config = providerConfig[`${provider}_provider_config`] || legacyProvider;
     
     if (!config) {
@@ -94,6 +96,47 @@ async function processContent(
             error
         });
         throw new Error(error);
+    }
+
+    await logger.debug('Provider status', {
+        requestId,
+        provider,
+        config: {
+            name: config.name,
+            hasApiKey: Boolean(config.apiKey),
+            hasEndpoint: Boolean(config.endpoint),
+            model: config.model,
+            endpoint: config.endpoint // Include endpoint for debugging local providers
+        }
+    });
+
+    // Set up the provider with the configuration
+    if (config.endpoint) {
+        try {
+            llmProvider.setEndpoint?.(config.endpoint);
+        } catch (error) {
+            await logger.error('Failed to set provider endpoint', {
+                requestId,
+                provider,
+                endpoint: config.endpoint,
+                error: error instanceof Error ? error.message : String(error)
+            });
+            throw error;
+        }
+    }
+
+    if (config.model) {
+        try {
+            llmProvider.setModel(config.model);
+        } catch (error) {
+            await logger.error('Failed to set provider model', {
+                requestId,
+                provider,
+                model: config.model,
+                error: error instanceof Error ? error.message : String(error)
+            });
+            throw error;
+        }
     }
 
     // Check if we have the required configuration
@@ -112,23 +155,6 @@ async function processContent(
         });
         throw new Error(error);
     }
-
-    // Set the model if specified
-    if (config.model) {
-        llmProvider.setModel(config.model);
-    }
-
-    await logger.debug('Provider status', {
-        requestId,
-        provider,
-        model: llmProvider.getCurrentModel(),
-        config: {
-            ...config,
-            apiKey: config.apiKey ? '***' : undefined,
-            hasApiKey: Boolean(config.apiKey),
-            hasEndpoint: Boolean(config.endpoint)
-        }
-    });
 
     const prompt = getPromptForCommand(command, content);
 

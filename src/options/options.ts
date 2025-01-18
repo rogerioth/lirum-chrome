@@ -438,45 +438,82 @@ class OptionsManager {
             }
             await this.logger.info('Commands loaded', { count: this.commands.length });
 
-            // Load providers from both formats
-            const legacySettings = await chrome.storage.sync.get(['providers']);
-            if (legacySettings.providers) {
-                this.providers = legacySettings.providers;
-                await this.logger.info('Legacy providers loaded', { count: this.providers.length });
+            // Initialize empty providers array
+            this.providers = [];
+
+            // Load providers from all storage locations
+            const [legacySyncSettings, legacyLocalSettings, providerConfigs] = await Promise.all([
+                chrome.storage.sync.get(['providers']),
+                chrome.storage.local.get(['providers']),
+                chrome.storage.local.get(PROVIDER_TYPES.map(type => `${type}_provider_config`))
+            ]);
+
+            // Start with sync storage providers
+            if (legacySyncSettings.providers) {
+                this.providers = [...legacySyncSettings.providers];
+                await this.logger.info('Legacy sync providers loaded', { count: this.providers.length });
             }
 
-            // Load individual provider configs and merge with legacy
-            const providerConfigs = await chrome.storage.local.get(
-                PROVIDER_TYPES.map(type => `${type}_provider_config`)
-            );
+            // Merge with local storage providers
+            if (legacyLocalSettings.providers) {
+                // Update existing providers or add new ones
+                legacyLocalSettings.providers.forEach(localProvider => {
+                    const existingIndex = this.providers.findIndex(p => p.type === localProvider.type);
+                    if (existingIndex !== -1) {
+                        this.providers[existingIndex] = {
+                            ...this.providers[existingIndex],
+                            ...localProvider
+                        };
+                    } else {
+                        this.providers.push(localProvider);
+                    }
+                });
+                await this.logger.info('Legacy local providers merged', { count: this.providers.length });
+            }
 
+            // Finally, merge with individual provider configs
             for (const type of PROVIDER_TYPES) {
                 const configKey = `${type}_provider_config`;
                 const config = providerConfigs[configKey];
 
                 if (config) {
-                    // Check if this provider already exists in the legacy format
                     const existingIndex = this.providers.findIndex(p => p.type === type);
                     
                     if (existingIndex !== -1) {
-                        // Update existing provider
+                        // Update existing provider with new config
                         this.providers[existingIndex] = {
                             ...this.providers[existingIndex],
-                            ...config
+                            ...config,
+                            type, // Ensure type is preserved
+                            name: config.name || this.providers[existingIndex].name || LLMProviderFactory.getProviderName(type)
                         };
                     } else {
                         // Add new provider
                         this.providers.push({
                             type,
-                            name: LLMProviderFactory.getProviderName(type),
+                            name: config.name || LLMProviderFactory.getProviderName(type),
                             ...config
                         });
                     }
                 }
             }
 
-            await this.logger.info('All providers loaded', { count: this.providers.length });
+            // Log the final state
+            const redactedProviders = this.providers.map(p => ({
+                type: p.type,
+                name: p.name,
+                hasApiKey: Boolean(p.apiKey),
+                apiKey: p.apiKey ? `${p.apiKey.slice(0,2)}....${p.apiKey.slice(-2)}` : undefined,
+                endpoint: p.endpoint,
+                model: p.model
+            }));
             
+            await this.logger.info('Options page providers loaded', { 
+                count: this.providers.length,
+                providers: redactedProviders
+            });
+            
+            // Update UI
             this.renderProviders();
             this.updateCommandsList();
         } catch (error) {
@@ -856,31 +893,43 @@ class OptionsManager {
             this.providers.push(provider);
         }
 
-        // Save in both formats
-        await Promise.all([
-            // Save in array format
-            chrome.storage.local.set({ providers: this.providers }),
+        try {
+            // Save in both storage types and formats
+            await Promise.all([
+                // Save in array format to both storages
+                chrome.storage.sync.set({ providers: this.providers }),
+                chrome.storage.local.set({ providers: this.providers }),
+                
+                // Save in provider-specific format
+                chrome.storage.local.set({
+                    [`${type}_provider_config`]: {
+                        apiKey,
+                        endpoint,
+                        model,
+                        name
+                    }
+                })
+            ]);
+
+            await this.logger.info('Provider configuration saved', {
+                type,
+                name,
+                hasApiKey: Boolean(apiKey),
+                hasEndpoint: Boolean(endpoint),
+                model
+            });
+
+            // Update UI
+            this.renderProviders();
+            this.hideProviderModal();
+            this.showMessage('Provider saved successfully');
             
-            // Save in provider-specific format
-            chrome.storage.local.set({
-                [`${type}_provider_config`]: {
-                    apiKey,
-                    endpoint,
-                    model
-                }
-            })
-        ]);
-
-        await this.logger.info('Provider configuration saved', {
-            type,
-            name,
-            hasApiKey: Boolean(apiKey),
-            hasEndpoint: Boolean(endpoint),
-            model
-        });
-
-        this.renderProviders();
-        this.hideProviderModal();
+            // Force reload settings to ensure everything is in sync
+            await this.loadSettings();
+        } catch (error) {
+            await this.logger.error('Failed to save provider', { error });
+            this.showMessage('Failed to save provider configuration', true);
+        }
     }
 
     private renderProviders(): void {
@@ -906,35 +955,6 @@ class OptionsManager {
             const hasSelection = this.selectedProviderIndex !== -1;
             editBtn.disabled = !hasSelection;
             removeBtn.disabled = !hasSelection;
-        }
-    }
-
-    private async updateModelsList(): Promise<void> {
-        const typeSelect = document.getElementById('provider-type') as HTMLSelectElement;
-        const modelSelect = document.getElementById('provider-model') as HTMLSelectElement;
-        const type = typeSelect.value as ProviderType;
-        
-        // Clear current options
-        modelSelect.innerHTML = '';
-        
-        try {
-            // Get available models
-            const models = LLMProviderFactory.getAvailableModels(type);
-            
-            // Add options for each model
-            models.forEach(model => {
-                const option = document.createElement('option');
-                option.value = model;
-                option.textContent = model;
-                modelSelect.appendChild(option);
-            });
-            
-            // Set default model if none selected
-            if (!modelSelect.value) {
-                modelSelect.value = LLMProviderFactory.getDefaultModel(type);
-            }
-        } catch (error) {
-            this.logger.error('Failed to update models list', { error });
         }
     }
 

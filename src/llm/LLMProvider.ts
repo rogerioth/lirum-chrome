@@ -32,4 +32,5 @@ export interface LLMProvider {
   setModel(model: string): void;
   validateApiKey?(apiKey: string): boolean;
   validateEndpoint?(endpoint: string): boolean;
+  setEndpoint?(endpoint: string): void;
 } 
