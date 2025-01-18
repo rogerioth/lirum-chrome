@@ -154,13 +154,14 @@
   </div>
 
   <!-- Provider Modal -->
-  <div id="provider-modal" class="modal" style="display: none;">
+  <div id="provider-modal" class="modal">
     <div class="modal-content">
       <div class="modal-header">
         <div class="modal-header-content">
           <i class="fa-solid fa-brain modal-icon"></i>
           <h2>Add Provider</h2>
         </div>
+        <button class="close-button">×</button>
       </div>
       <div class="modal-body">
         <div class="form-group">
@@ -175,7 +176,7 @@
           <label for="provider-apikey">API Key</label>
           <input type="password" id="provider-apikey" placeholder="Enter API key">
         </div>
-        <div class="form-group" id="endpoint-group" style="display: none;">
+        <div class="form-group" id="endpoint-group">
           <label for="provider-endpoint">Endpoint</label>
           <input type="text" id="provider-endpoint" placeholder="Enter endpoint URL">
         </div>
@@ -183,7 +184,7 @@
           <label for="provider-model">Model</label>
           <select id="provider-model" class="model-select"></select>
         </div>
-        <div id="modal-message" class="message-container" style="display: none;"></div>
+        <div id="modal-message" class="message-container"></div>
       </div>
       <div class="modal-footer">
         <button id="test-provider" class="button secondary">
@@ -194,13 +195,13 @@
           <span>Save</span>
           <div class="spinner"></div>
         </button>
-        <button id="modal-cancel" class="button">Cancel</button>
+        <button id="modal-cancel" class="button secondary">Cancel</button>
       </div>
     </div>
   </div>
 
   <!-- Command Modal -->
-  <div id="command-modal" class="modal" style="display: none;">
+  <div id="command-modal" class="modal">
     <div class="modal-content">
       <div class="modal-header">
         <div class="modal-header-content">
