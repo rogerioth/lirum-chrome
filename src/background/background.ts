@@ -230,6 +230,63 @@ async function processContent(
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     const requestId = Math.random().toString(36).substring(7);
     
+    // Handle fetch requests
+    if (request.type === 'fetch') {
+        logger.debug(`Processing fetch request ${requestId}`, { 
+            url: request.url,
+            method: request.options?.method || 'GET'
+        });
+
+        // Add headers to the request
+        const options = {
+            ...request.options,
+            headers: {
+                ...request.options?.headers,
+                'Content-Type': 'application/json',
+            },
+            // Use no-cors mode for POST requests to bypass CORS restrictions
+            mode: (request.options?.method === 'POST' ? 'no-cors' : 'cors') as RequestMode,
+            credentials: 'omit' as RequestCredentials
+        };
+
+        fetch(request.url, options)
+            .then(async response => {
+                // For no-cors mode, we won't be able to read the response
+                // but at least the request will go through
+                let responseBody = '';
+                try {
+                    responseBody = await response.text();
+                } catch (error) {
+                    logger.debug('Could not read response body (expected for no-cors mode)', {
+                        status: response.status,
+                        type: response.type
+                    });
+                }
+
+                // Convert headers to a plain object
+                const headers: Record<string, string> = {};
+                response.headers.forEach((value, key) => {
+                    headers[key] = value;
+                });
+                
+                sendResponse({
+                    status: response.status,
+                    statusText: response.statusText,
+                    headers,
+                    body: responseBody
+                });
+            })
+            .catch(error => {
+                const errorMessage = error instanceof Error ? error.message : String(error);
+                logger.error(`Fetch request failed ${requestId}`, { 
+                    error: errorMessage,
+                    stack: error instanceof Error ? error.stack : undefined
+                });
+                sendResponse({ error: `Fetch request failed: ${errorMessage}` });
+            });
+        return true;
+    }
+
     // Handle provider initialization
     if (request.type === 'INITIALIZE_PROVIDER') {
         logger.debug(`Processing provider initialization request ${requestId}`, { 

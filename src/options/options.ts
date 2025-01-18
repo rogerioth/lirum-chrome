@@ -137,6 +137,18 @@ class OptionsManager {
                 throw new Error('Invalid API key format.');
             }
 
+            // Request host permission for the endpoint
+            const endpointUrl = new URL(endpointInput.value);
+            const origin = endpointUrl.origin + '/*';
+            
+            const granted = await chrome.permissions.request({
+                origins: [origin]
+            });
+
+            if (!granted) {
+                throw new Error('Permission to access the endpoint was denied. Please grant permission to test the connection.');
+            }
+
             // Initialize provider with appropriate parameters based on type
             if (isLocal) {
                 await provider.initialize(undefined, endpointInput.value);

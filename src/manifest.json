@@ -9,8 +9,10 @@
     "scripting",
     "tabs"
   ],
-  "host_permissions": [
-    "<all_urls>"
+  "host_permissions": [],
+  "optional_host_permissions": [
+    "http://*/*",
+    "https://*/*"
   ],
   "background": {
     "service_worker": "background/background.js",
@@ -37,4 +39,4 @@
     "48": "assets/icon48.png",
     "128": "assets/icon128.png"
   }
-} 
+}

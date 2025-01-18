@@ -152,14 +152,32 @@ export class OllamaProvider implements LLMProvider {
                 body: JSON.stringify(requestBody)
             });
 
-            const responseText = await response.text();
             await this.logger.debug('Raw Ollama response', {
                 url,
                 status: response.status,
                 statusText: response.statusText,
-                rawResponse: responseText
+                type: response.type
             });
 
+            // For opaque responses (no-cors mode), we can't read the response
+            // but if the status is 0, it means the request was sent successfully
+            if (response.type === 'opaque' || response.type === 'opaqueredirect') {
+                if (response.status === 0) {
+                    return {
+                        content: "Request sent successfully, but response cannot be read due to CORS restrictions. The model should be processing your request.",
+                        model: this.currentModel,
+                        usage: {
+                            promptTokens: 0,
+                            completionTokens: 0,
+                            totalTokens: 0
+                        },
+                        raw: {}
+                    };
+                }
+                throw new Error('Request failed due to CORS restrictions. Try running Ollama with CORS enabled.');
+            }
+
+            const responseText = await response.text();
             if (!response.ok) {
                 throw new Error(`Ollama API request failed with status ${response.status}: ${responseText}`);
             }
@@ -167,29 +185,23 @@ export class OllamaProvider implements LLMProvider {
             let data;
             try {
                 data = JSON.parse(responseText);
-            } catch (parseError) {
+            } catch (error) {
                 await this.logger.error('Failed to parse Ollama response', {
                     url,
                     status: response.status,
                     rawResponse: responseText,
-                    parseError: parseError instanceof Error ? parseError.message : String(parseError)
+                    error: error instanceof Error ? error.message : String(error)
                 });
-                throw new Error(`Invalid JSON response from Ollama API: ${responseText}`);
+                throw new Error('Invalid JSON response from Ollama API');
             }
-
-            if (!data.response) {
-                throw new Error('Invalid response format from Ollama API: missing response field');
-            }
-
-            await this.logger.info('Ollama response received', { data });
 
             return {
                 content: data.response,
                 model: this.currentModel,
                 usage: {
-                    promptTokens: data.prompt_eval_count || 0,
-                    completionTokens: data.eval_count || 0,
-                    totalTokens: (data.prompt_eval_count || 0) + (data.eval_count || 0)
+                    promptTokens: data.prompt_eval_count,
+                    completionTokens: data.eval_count,
+                    totalTokens: data.prompt_eval_count + data.eval_count
                 },
                 raw: data
             };
