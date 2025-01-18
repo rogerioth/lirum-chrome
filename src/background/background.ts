@@ -75,11 +75,19 @@ async function processContent(
 
     // Get provider instance and config
     const llmProvider = LLMProviderFactory.getProvider(provider);
-    const config = await chrome.storage.local.get(`${provider}_provider_config`);
-    const providerConfig = config[`${provider}_provider_config`];
     
-    if (!providerConfig?.apiKey && !providerConfig?.endpoint) {
-        const error = `Provider ${provider} is not configured. Please configure the provider in settings.`;
+    // Try to get provider config from both formats
+    const [legacyConfig, providerConfig] = await Promise.all([
+        chrome.storage.local.get('providers'),
+        chrome.storage.local.get(`${provider}_provider_config`)
+    ]);
+
+    // Check both legacy array format and new format
+    const legacyProvider = legacyConfig.providers?.find((p: any) => p.type === provider);
+    const config = providerConfig[`${provider}_provider_config`] || legacyProvider;
+    
+    if (!config) {
+        const error = `Provider ${provider} is not configured. Please go to extension settings and configure a valid API key or endpoint.`;
         await logger.error('Provider not configured', { 
             requestId,
             provider,
@@ -88,9 +96,26 @@ async function processContent(
         throw new Error(error);
     }
 
+    // Check if we have the required configuration
+    if (config.apiKey === undefined && config.endpoint === undefined) {
+        const error = `Provider ${provider} is missing required configuration. ${
+            provider === 'openai' || provider === 'anthropic' || provider === 'deepseek' 
+                ? 'Please configure an API key in the extension settings.'
+                : 'Please configure a valid endpoint in the extension settings.'
+        }`;
+        await logger.error('Invalid provider configuration', {
+            requestId,
+            provider,
+            error,
+            hasApiKey: Boolean(config.apiKey),
+            hasEndpoint: Boolean(config.endpoint)
+        });
+        throw new Error(error);
+    }
+
     // Set the model if specified
-    if (providerConfig.model) {
-        llmProvider.setModel(providerConfig.model);
+    if (config.model) {
+        llmProvider.setModel(config.model);
     }
 
     await logger.debug('Provider status', {
@@ -98,8 +123,10 @@ async function processContent(
         provider,
         model: llmProvider.getCurrentModel(),
         config: {
-            ...providerConfig,
-            apiKey: providerConfig.apiKey ? '***' : undefined // Mask API key in logs
+            ...config,
+            apiKey: config.apiKey ? '***' : undefined,
+            hasApiKey: Boolean(config.apiKey),
+            hasEndpoint: Boolean(config.endpoint)
         }
     });
 

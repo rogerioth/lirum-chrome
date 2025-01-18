@@ -77,12 +77,27 @@ export class OpenAIProvider implements LLMProvider {
       }
 
       // Store configuration after successful test
-      await chrome.storage.local.set({
-        'openai_provider_config': {
-          apiKey,
-          model: this.defaultModel
-        }
-      });
+      const config = {
+        apiKey,
+        model: this.defaultModel
+      };
+
+      // Save in both formats for compatibility
+      await Promise.all([
+        chrome.storage.local.get('providers').then(data => {
+          const providers = data.providers || [];
+          const existingIndex = providers.findIndex((p: any) => p.type === 'openai');
+          
+          if (existingIndex >= 0) {
+            providers[existingIndex] = { ...providers[existingIndex], ...config };
+          } else {
+            providers.push({ type: 'openai', name: 'OpenAI', ...config });
+          }
+          
+          return chrome.storage.local.set({ providers });
+        }),
+        chrome.storage.local.set({ 'openai_provider_config': config })
+      ]);
 
       await this.logger.info('OpenAI provider validated successfully');
     } catch (error) {
