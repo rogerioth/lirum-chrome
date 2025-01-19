@@ -290,4 +290,14 @@ export class LMStudioProvider extends KeyedProvider implements LLMProvider {
   validateApiKey(apiKey: string): boolean {
     return true; // LM Studio doesn't use API keys
   }
+
+  configure(config: { apiKey?: string; model?: string; endpoint?: string }): void {
+    if (config.model) {
+      this.setModel(config.model);
+    }
+    if (config.endpoint) {
+      this.setEndpoint(config.endpoint);
+    }
+    // LM Studio doesn't use API keys, so we ignore that config
+  }
 }

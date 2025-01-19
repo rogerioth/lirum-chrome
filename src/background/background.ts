@@ -75,149 +75,266 @@ async function processContent(
         isStreaming: Boolean(port)
     });
 
-    // Get provider instance and config
-    const llmProvider = LLMProviderFactory.getProvider(provider);
-    
-    // Try to get provider config from both formats and storage types
-    const [legacySyncConfig, legacyLocalConfig, providerConfig] = await Promise.all([
-        chrome.storage.sync.get('providers'),
-        chrome.storage.local.get('providers'),
-        chrome.storage.local.get(`${provider}_provider_config`)
-    ]);
-
-    // Check both legacy array format and new format
-    const legacyProvider = legacySyncConfig.providers?.find((p: any) => p.type === provider) || 
-                          legacyLocalConfig.providers?.find((p: any) => p.type === provider);
-    const config = providerConfig[`${provider}_provider_config`] || legacyProvider;
-    
-    if (!config) {
-        const error = `Provider ${provider} is not configured. Please go to extension settings and configure a valid API key or endpoint.`;
-        await logger.error('Provider not configured', { 
-            requestId,
-            provider,
-            error
-        });
-        throw new Error(error);
-    }
-
-    await logger.debug('Provider status', {
-        requestId,
-        provider,
-        config: {
-            name: config.name,
-            hasApiKey: Boolean(config.apiKey),
-            hasEndpoint: Boolean(config.endpoint),
-            model: config.model,
-            endpoint: config.endpoint // Include endpoint for debugging local providers
-        }
-    });
-
-    // Set up the provider with the configuration
-    if (config.endpoint) {
-        try {
-            llmProvider.setEndpoint?.(config.endpoint);
-        } catch (error) {
-            await logger.error('Failed to set provider endpoint', {
-                requestId,
-                provider,
-                endpoint: config.endpoint,
-                error: error instanceof Error ? error.message : String(error)
-            });
-            throw error;
-        }
-    }
-
-    if (config.model) {
-        try {
-            llmProvider.setModel(config.model);
-        } catch (error) {
-            await logger.error('Failed to set provider model', {
-                requestId,
-                provider,
-                model: config.model,
-                error: error instanceof Error ? error.message : String(error)
-            });
-            throw error;
-        }
-    }
-
-    // Check if we have the required configuration
-    if (config.apiKey === undefined && config.endpoint === undefined) {
-        const error = `Provider ${provider} is missing required configuration. ${
-            provider === 'openai' || provider === 'anthropic' || provider === 'deepseek' 
-                ? 'Please configure an API key in the extension settings.'
-                : 'Please configure a valid endpoint in the extension settings.'
-        }`;
-        await logger.error('Invalid provider configuration', {
-            requestId,
-            provider,
-            error,
-            hasApiKey: Boolean(config.apiKey),
-            hasEndpoint: Boolean(config.endpoint)
-        });
-        throw new Error(error);
-    }
-
-    const prompt = getPromptForCommand(command, content);
-
     try {
-        await logger.debug('Sending prompt to provider', { 
+        // Get provider instance
+        const llmProvider = LLMProviderFactory.getProvider(provider);
+        
+        // Get provider config from storage
+        const data = await chrome.storage.sync.get('providers');
+        const providers = data.providers || [];
+        const config = providers.find((p: any) => p.type === provider);
+        
+        if (!config) {
+            const error = `Provider ${provider} is not configured. Please go to extension settings and configure the provider.`;
+            await logger.error('Provider not configured', { 
+                requestId,
+                provider,
+                error
+            });
+            throw new Error(error);
+        }
+
+        await logger.debug('Provider status', {
             requestId,
             provider,
-            prompt,
-            model: llmProvider.getCurrentModel(),
-            options: {
-                temperature: 0.7,
-                maxTokens: 1000,
-                stream: Boolean(port)
+            config: {
+                name: config.name,
+                hasApiKey: Boolean(config.apiKey),
+                hasEndpoint: Boolean(config.endpoint),
+                model: config.model,
+                endpoint: config.endpoint
             }
         });
 
-        if (port) {
-            // Handle streaming response
-            try {
-                let fullContent = '';
-                for await (const chunk of llmProvider.completeStream(prompt, {
+        // Configure the provider with stored settings
+        try {
+            llmProvider.configure({
+                apiKey: config.apiKey,
+                model: config.model,
+                endpoint: config.endpoint
+            });
+        } catch (error) {
+            await logger.error('Failed to configure provider', {
+                requestId,
+                provider,
+                error: error instanceof Error ? error.message : String(error)
+            });
+            throw error;
+        }
+
+        // Check if we have the required configuration
+        if (!config.apiKey && !config.endpoint) {
+            const error = `Provider ${provider} is missing required configuration. ${
+                provider === 'openai' || provider === 'anthropic' || provider === 'deepseek' 
+                    ? 'Please configure an API key in the extension settings.'
+                    : 'Please configure a valid endpoint in the extension settings.'
+            }`;
+            await logger.error('Invalid provider configuration', {
+                requestId,
+                provider,
+                error,
+                hasApiKey: Boolean(config.apiKey),
+                hasEndpoint: Boolean(config.endpoint)
+            });
+            throw new Error(error);
+        }
+
+        const prompt = getPromptForCommand(command, content);
+
+        try {
+            await logger.debug('Sending prompt to provider', { 
+                requestId,
+                provider,
+                prompt,
+                model: llmProvider.getCurrentModel(),
+                options: {
                     temperature: 0.7,
                     maxTokens: 1000,
-                    stream: true
-                })) {
-                    fullContent += chunk.content;
-                    port.postMessage({ type: 'STREAM_CHUNK', content: chunk.content, done: chunk.done });
+                    stream: Boolean(port)
                 }
-                
-                await logger.info('Provider streaming response complete', {
-                    requestId,
-                    provider,
-                    responseLength: fullContent.length
+            });
+
+            if (port) {
+                // Handle streaming response
+                let fullContent = '';
+                let hasReceivedContent = false;
+                let chunkCount = 0;
+                let retryCount = 0;
+                const MAX_RETRIES = 2;
+
+                const attemptStream = async () => {
+                    await logger.debug('Starting stream attempt', {
+                        requestId,
+                        provider,
+                        model: llmProvider.getCurrentModel(),
+                        attempt: retryCount + 1
+                    });
+
+                    // For Ollama, verify the endpoint is responding before streaming
+                    if (provider === 'ollama') {
+                        try {
+                            const response = await fetch(`${config.endpoint}/api/version`);
+                            if (!response.ok) {
+                                throw new Error(`Ollama endpoint check failed: ${response.status} ${response.statusText}`);
+                            }
+                            const version = await response.json();
+                            await logger.debug('Ollama endpoint check successful', {
+                                requestId,
+                                version
+                            });
+                        } catch (error) {
+                            await logger.error('Ollama endpoint check failed', {
+                                requestId,
+                                endpoint: config.endpoint,
+                                error: error instanceof Error ? error.message : String(error)
+                            });
+                            throw new Error(`Failed to connect to Ollama endpoint: ${error instanceof Error ? error.message : String(error)}`);
+                        }
+                    }
+
+                    const stream = llmProvider.completeStream(prompt, {
+                        temperature: 0.7,
+                        maxTokens: 1000,
+                        stream: true
+                    });
+
+                    for await (const chunk of stream) {
+                        chunkCount++;
+                        
+                        await logger.debug('Stream chunk received', {
+                            requestId,
+                            provider,
+                            chunkNumber: chunkCount,
+                            hasContent: Boolean(chunk?.content),
+                            isDone: Boolean(chunk?.done),
+                            chunkContent: chunk?.content?.slice(0, 50),
+                            chunkDetails: JSON.stringify(chunk).slice(0, 200) // Log raw chunk for debugging
+                        });
+
+                        if (!chunk) {
+                            await logger.error('Empty chunk received', {
+                                requestId,
+                                provider,
+                                chunkNumber: chunkCount,
+                                fullContentLength: fullContent.length
+                            });
+                            continue;
+                        }
+
+                        if (chunk.content) {
+                            hasReceivedContent = true;
+                            fullContent += chunk.content;
+                            port.postMessage({ type: 'STREAM_CHUNK', content: chunk.content, done: chunk.done });
+
+                            if (fullContent.length % 500 === 0) {
+                                await logger.debug('Streaming progress', {
+                                    requestId,
+                                    provider,
+                                    contentLength: fullContent.length,
+                                    chunkCount
+                                });
+                            }
+                        }
+
+                        if (chunk.done) {
+                            await logger.debug('Stream done signal received', {
+                                requestId,
+                                provider,
+                                hasReceivedContent,
+                                totalChunks: chunkCount,
+                                finalContentLength: fullContent.length
+                            });
+
+                            // For Ollama, if we get a done signal without content on first chunk, retry
+                            if (!hasReceivedContent && chunkCount === 1 && provider === 'ollama' && retryCount < MAX_RETRIES) {
+                                retryCount++;
+                                await logger.info('Retrying Ollama stream due to empty response', {
+                                    requestId,
+                                    attempt: retryCount,
+                                    maxRetries: MAX_RETRIES
+                                });
+                                return attemptStream();
+                            }
+
+                            if (!hasReceivedContent) {
+                                throw new Error(`Stream completed without receiving any content after ${chunkCount} chunks (attempt ${retryCount + 1}/${MAX_RETRIES + 1})`);
+                            }
+                            break;
+                        }
+                    }
+
+                    return fullContent;
+                };
+
+                try {
+                    const content = await attemptStream();
+                    
+                    await logger.info('Provider streaming response complete', {
+                        requestId,
+                        provider,
+                        responseLength: content.length,
+                        hasContent: Boolean(content),
+                        totalChunks: chunkCount,
+                        retryCount
+                    });
+
+                    if (!content) {
+                        throw new Error(`Stream completed but no content was received after ${chunkCount} chunks and ${retryCount} retries`);
+                    }
+
+                    return { content };
+                } catch (error) {
+                    const errorMessage = error instanceof Error ? error.message : String(error);
+                    await logger.error('Streaming response failed', {
+                        requestId,
+                        provider,
+                        error: errorMessage,
+                        stack: error instanceof Error ? error.stack : undefined,
+                        streamState: {
+                            hasContent: Boolean(fullContent),
+                            contentLength: fullContent.length,
+                            totalChunks: chunkCount,
+                            retryAttempts: retryCount
+                        }
+                    });
+                    port.postMessage({ type: 'STREAM_ERROR', error: errorMessage });
+                    throw error;
+                }
+            } else {
+                // Handle non-streaming response
+                const response = await llmProvider.complete(prompt, {
+                    temperature: 0.7,
+                    maxTokens: 1000
                 });
 
-                return { content: fullContent };
-            } catch (error) {
-                port.postMessage({ type: 'STREAM_ERROR', error: error instanceof Error ? error.message : String(error) });
-                throw error;
-            }
-        } else {
-            // Handle non-streaming response
-            const response = await llmProvider.complete(prompt, {
-                temperature: 0.7,
-                maxTokens: 1000
-            });
+                if (!response || !response.content) {
+                    throw new Error('Provider returned empty response');
+                }
 
-            await logger.info('Provider response received', {
+                await logger.info('Provider response received', {
+                    requestId,
+                    provider,
+                    responseLength: response.content.length,
+                    model: response.model,
+                    usage: response.usage
+                });
+
+                return { content: response.content };
+            }
+        } catch (error) {
+            await logger.error('Provider request failed', {
                 requestId,
                 provider,
-                responseLength: response.content.length,
-                model: response.model,
-                usage: response.usage
+                error: error instanceof Error ? error.message : String(error),
+                stack: error instanceof Error ? error.stack : undefined
             });
-
-            return { content: response.content };
+            throw error;
         }
     } catch (error) {
-        await logger.error('Provider request failed', {
+        await logger.error('Content processing failed', {
             requestId,
             provider,
+            command,
             error: error instanceof Error ? error.message : String(error),
             stack: error instanceof Error ? error.stack : undefined
         });

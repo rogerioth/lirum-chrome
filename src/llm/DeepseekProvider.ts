@@ -289,4 +289,19 @@ export class DeepseekProvider extends KeyedProvider implements LLMProvider {
   validateEndpoint(endpoint: string): boolean {
     return true; // Deepseek doesn't support custom endpoints
   }
+
+  configure(config: { apiKey?: string; model?: string; endpoint?: string }): void {
+    if (config.apiKey) {
+      if (!this.validateApiKey(config.apiKey)) {
+        throw new Error('Invalid API key format');
+      }
+      this.apiKey = config.apiKey;
+    }
+    if (config.model) {
+      this.setModel(config.model);
+    }
+    if (config.endpoint) {
+      this.setEndpoint(config.endpoint);
+    }
+  }
 }

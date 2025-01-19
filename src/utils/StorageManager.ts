@@ -1,6 +1,5 @@
 import { Logger } from './Logger';
 import { LLMProviderFactory, ProviderType } from '../llm/LLMProviderFactory';
-import { LLMProvider } from '../llm/LLMProvider';
 
 export interface Provider {
     type: ProviderType;
@@ -40,162 +39,116 @@ export class StorageManager {
         return StorageManager.instance;
     }
 
-    public async getProviders(): Promise<Provider[]> {
+    // Provider CRUD Operations
+    public async listProviders(): Promise<Provider[]> {
         try {
-            const [syncData, localData, providerConfigs] = await Promise.all([
-                chrome.storage.sync.get('providers'),
-                chrome.storage.local.get('providers'),
-                chrome.storage.local.get(
-                    Object.values(LLMProviderFactory.getProviderTypes())
-                        .map(type => `${type}_provider_config`)
-                )
-            ]);
+            const data = await chrome.storage.sync.get('providers');
+            return data.providers || [];
+        } catch (error) {
+            await this.logger.error('Failed to list providers', { error });
+            throw error;
+        }
+    }
 
-            let allProviders = syncData.providers || [];
+    public async getProvider(providerId: string): Promise<Provider | null> {
+        try {
+            const providers = await this.listProviders();
+            return providers.find(p => p.providerId === providerId) || null;
+        } catch (error) {
+            await this.logger.error('Failed to get provider', { error });
+            throw error;
+        }
+    }
 
-            // Merge with local storage providers
-            if (localData.providers) {
-                localData.providers.forEach(localProvider => {
-                    const existingIndex = allProviders.findIndex(p => p.providerId === localProvider.providerId);
-                    if (existingIndex !== -1) {
-                        allProviders[existingIndex] = {
-                            ...allProviders[existingIndex],
-                            ...localProvider
-                        };
-                    } else {
-                        allProviders.push({
-                            ...localProvider,
-                            providerId: localProvider.providerId || crypto.randomUUID()
-                        });
-                    }
-                });
-            }
-
-            // Merge with provider-specific configs
-            Object.entries(providerConfigs).forEach(([key, config]) => {
-                if (!config) return;
-                const type = key.replace('_provider_config', '') as ProviderType;
-                const existingIndex = allProviders.findIndex(p => p.providerId === config.providerId);
-                
-                if (existingIndex !== -1) {
-                    allProviders[existingIndex] = {
-                        ...allProviders[existingIndex],
-                        ...config,
-                        type,
-                        name: config.name || allProviders[existingIndex].name || LLMProviderFactory.getProviderName(type)
-                    };
-                } else {
-                    allProviders.push({
-                        type,
-                        name: config.name || LLMProviderFactory.getProviderName(type),
-                        providerId: config.providerId || crypto.randomUUID(),
-                        ...config
-                    });
-                }
-            });
-
-            // Ensure all providers have a providerId
-            allProviders = allProviders.map(provider => ({
+    public async createProvider(provider: Omit<Provider, 'providerId'>): Promise<Provider> {
+        try {
+            const newProvider: Provider = {
                 ...provider,
-                providerId: provider.providerId || crypto.randomUUID()
-            }));
+                providerId: crypto.randomUUID()
+            };
 
-            return allProviders;
+            const providers = await this.listProviders();
+            providers.push(newProvider);
+            
+            await chrome.storage.sync.set({ providers });
+            await this.logger.info('Provider created', { providerId: newProvider.providerId });
+            
+            return newProvider;
         } catch (error) {
-            await this.logger.error('Failed to get providers', { error });
+            await this.logger.error('Failed to create provider', { error });
             throw error;
         }
     }
 
-    public async saveProvider(provider: Provider): Promise<void> {
+    public async updateProvider(providerId: string, updates: Partial<Provider>): Promise<Provider> {
         try {
-            // Ensure provider has a providerId
-            if (!provider.providerId) {
-                provider.providerId = crypto.randomUUID();
+            const providers = await this.listProviders();
+            const index = providers.findIndex(p => p.providerId === providerId);
+            
+            if (index === -1) {
+                throw new Error(`Provider with ID ${providerId} not found`);
             }
 
-            // Save to both storage formats for backward compatibility
-            await Promise.all([
-                chrome.storage.sync.get('providers').then(data => {
-                    const providers = data.providers || [];
-                    const index = providers.findIndex(p => p.providerId === provider.providerId);
-                    if (index !== -1) {
-                        providers[index] = provider;
-                    } else {
-                        providers.push(provider);
-                    }
-                    return chrome.storage.sync.set({ providers });
-                }),
-                chrome.storage.local.set({
-                    [`${provider.providerId}_${provider.type}_provider_config`]: provider
-                })
-            ]);
+            providers[index] = {
+                ...providers[index],
+                ...updates,
+                providerId // Ensure ID doesn't change
+            };
 
-            await this.logger.info('Provider saved', { 
-                providerId: provider.providerId,
-                type: provider.type,
-                name: provider.name 
-            });
+            await chrome.storage.sync.set({ providers });
+            await this.logger.info('Provider updated', { providerId });
+
+            return providers[index];
         } catch (error) {
-            await this.logger.error('Failed to save provider', { error });
+            await this.logger.error('Failed to update provider', { error });
             throw error;
         }
     }
 
-    public async removeProvider(provider: Provider): Promise<void> {
+    public async deleteProvider(providerId: string): Promise<void> {
         try {
-            await Promise.all([
-                chrome.storage.sync.get('providers').then(data => {
-                    const providers = (data.providers || []).filter(p => p.providerId !== provider.providerId);
-                    return chrome.storage.sync.set({ providers });
-                }),
-                chrome.storage.local.remove(`${provider.providerId}_${provider.type}_provider_config`)
-            ]);
-
-            await this.logger.info('Provider removed', { 
-                providerId: provider.providerId,
-                type: provider.type 
-            });
+            const providers = await this.listProviders();
+            const filteredProviders = providers.filter(p => p.providerId !== providerId);
+            
+            await chrome.storage.sync.set({ providers: filteredProviders });
+            await this.logger.info('Provider deleted', { providerId });
         } catch (error) {
-            await this.logger.error('Failed to remove provider', { error });
+            await this.logger.error('Failed to delete provider', { error });
             throw error;
         }
     }
 
-    public async getCommands(): Promise<Command[]> {
+    // Command Operations
+    public async listCommands(): Promise<Command[]> {
         try {
             const data = await chrome.storage.sync.get('commands');
             return data.commands || DEFAULT_COMMANDS;
         } catch (error) {
-            await this.logger.error('Failed to get commands', { error });
+            await this.logger.error('Failed to list commands', { error });
             throw error;
         }
     }
 
-    public async saveCommands(commands: Command[]): Promise<void> {
+    public async updateCommands(commands: Command[]): Promise<void> {
         try {
             await chrome.storage.sync.set({ commands });
-            await this.logger.info('Commands saved', { count: commands.length });
+            await this.logger.info('Commands updated', { count: commands.length });
         } catch (error) {
-            await this.logger.error('Failed to save commands', { error });
+            await this.logger.error('Failed to update commands', { error });
             throw error;
         }
     }
 
-    public async factoryReset(): Promise<void> {
+    public async resetToDefaults(): Promise<void> {
         try {
             await Promise.all([
-                // Clear all storage
                 chrome.storage.sync.clear(),
                 chrome.storage.local.clear(),
-                
-                // Reset commands to defaults
-                this.saveCommands(DEFAULT_COMMANDS)
+                this.updateCommands(DEFAULT_COMMANDS)
             ]);
-
-            await this.logger.info('Factory reset completed');
+            await this.logger.info('Reset to defaults completed');
         } catch (error) {
-            await this.logger.error('Failed to perform factory reset', { error });
+            await this.logger.error('Failed to reset to defaults', { error });
             throw error;
         }
     }

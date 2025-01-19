@@ -15,57 +15,16 @@ export class OpenAIProvider extends KeyedProvider implements LLMProvider {
 
   private apiKey: string | null = null;
   private currentModel: string;
+  private endpoint: string;
   protected readonly logger: Logger;
-  private readonly API_URL = 'https://api.openai.com/v1/chat/completions';
   private readonly API_KEY_PATTERN = /^.{5,}$/;
   private readonly ENDPOINT_PATTERN = /^https?:\/\/[^\s/$.?#].[^\s]*$/i;
-  private endpoint: string = this.defaultEndpoint;
 
   constructor() {
     super();
     this.currentModel = this.defaultModel;
+    this.endpoint = this.defaultEndpoint;
     this.logger = Logger.getInstance();
-    this.loadState();
-  }
-
-  private async loadState(): Promise<void> {
-    try {
-      const data = await chrome.storage.local.get(this.getStorageKey('openai'));
-      const state = data[this.getStorageKey('openai')];
-      if (state) {
-        this.apiKey = state.apiKey;
-        this.currentModel = state.model || this.defaultModel;
-        this.endpoint = state.endpoint || this.defaultEndpoint;
-        await this.logger.debug('OpenAI provider state loaded', {
-          hasApiKey: Boolean(this.apiKey),
-          currentModel: this.currentModel,
-          endpoint: this.endpoint,
-          key: this.key
-        });
-      }
-    } catch (error) {
-      await this.logger.error('Failed to load OpenAI provider state', { error });
-    }
-  }
-
-  private async saveState(): Promise<void> {
-    try {
-      await chrome.storage.local.set({
-        [this.getStorageKey('openai')]: {
-          apiKey: this.apiKey,
-          model: this.currentModel,
-          endpoint: this.endpoint
-        }
-      });
-      await this.logger.debug('OpenAI provider state saved', {
-        hasApiKey: Boolean(this.apiKey),
-        currentModel: this.currentModel,
-        endpoint: this.endpoint,
-        key: this.key
-      });
-    } catch (error) {
-      await this.logger.error('Failed to save OpenAI provider state', { error });
-    }
   }
 
   async test(apiKey?: string, endpoint?: string): Promise<void> {
@@ -79,7 +38,10 @@ export class OpenAIProvider extends KeyedProvider implements LLMProvider {
 
     // Test the API key with a simple models list request
     try {
-      const response = await fetch(`${endpoint || this.endpoint}/v1/models`, {
+      const testEndpoint = endpoint || this.defaultEndpoint;
+      await this.logger.info('Testing OpenAI connection', { endpoint: testEndpoint });
+
+      const response = await fetch(`${testEndpoint}/v1/models`, {
         headers: {
           'Authorization': `Bearer ${apiKey}`
         }
@@ -90,59 +52,28 @@ export class OpenAIProvider extends KeyedProvider implements LLMProvider {
         throw new Error(error.error?.message || 'Failed to validate API key');
       }
 
-      // Store configuration after successful test
-      const config = {
-        apiKey,
-        model: this.defaultModel,
-        endpoint: endpoint || this.endpoint
-      };
-
-      // Save in both formats for compatibility
-      await Promise.all([
-        chrome.storage.local.get('providers').then(data => {
-          const providers = data.providers || [];
-          const existingIndex = providers.findIndex((p: any) => p.type === 'openai' && p.key === this.key);
-          
-          if (existingIndex >= 0) {
-            providers[existingIndex] = { ...providers[existingIndex], ...config, key: this.key };
-          } else {
-            providers.push({ type: 'openai', name: 'OpenAI', key: this.key, ...config });
-          }
-          
-          return chrome.storage.local.set({ providers });
-        }),
-        chrome.storage.local.set({ [this.getStorageKey('openai')]: config })
-      ]);
-
-      // Update current instance
-      this.apiKey = apiKey;
-      this.currentModel = this.defaultModel;
-      this.endpoint = endpoint || this.endpoint;
-
-      await this.logger.info('OpenAI configuration saved', { 
-        hasApiKey: true,
-        model: this.defaultModel,
-        endpoint: this.endpoint,
-        key: this.key
+      const data = await response.json();
+      await this.logger.info('OpenAI models available', { 
+        modelCount: data.data?.length,
+        models: data.data?.slice(0, 5).map((m: any) => m.id)
       });
 
     } catch (error) {
-      await this.logger.error('OpenAI test failed', { error });
+      await this.logger.error('OpenAI test failed', { 
+        endpoint: endpoint || this.defaultEndpoint,
+        error: error instanceof Error ? error.message : String(error)
+      });
       throw error;
     }
   }
 
   async complete(prompt: string, options: LLMOptions = {}): Promise<LLMResponse> {
-    // Load configuration
-    const config = await chrome.storage.local.get(this.getStorageKey('openai'));
-    const providerConfig = config[this.getStorageKey('openai')];
-    
-    if (!providerConfig?.apiKey) {
+    if (!this.apiKey) {
       throw new Error('OpenAI provider not configured. Please provide a valid API key in settings.');
     }
 
     const requestBody = {
-      model: providerConfig.model || this.currentModel,
+      model: this.currentModel,
       messages: [{ role: 'user', content: prompt }],
       temperature: options.temperature ?? 0.7,
       max_tokens: options.maxTokens,
@@ -154,11 +85,11 @@ export class OpenAIProvider extends KeyedProvider implements LLMProvider {
     };
 
     try {
-      const response = await fetch(`${providerConfig.endpoint || this.endpoint}/v1/chat/completions`, {
+      const response = await fetch(`${this.endpoint}/v1/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${providerConfig.apiKey}`
+          'Authorization': `Bearer ${this.apiKey}`
         },
         body: JSON.stringify(requestBody)
       });
@@ -175,13 +106,13 @@ export class OpenAIProvider extends KeyedProvider implements LLMProvider {
       }
 
       await this.logger.llm('OpenAI completion successful', {
-        model: providerConfig.model || this.currentModel,
+        model: this.currentModel,
         usage: data.usage
       });
 
       return {
         content: data.choices[0].message.content,
-        model: providerConfig.model || this.currentModel,
+        model: this.currentModel,
         usage: {
           promptTokens: data.usage.prompt_tokens,
           completionTokens: data.usage.completion_tokens,
@@ -196,16 +127,12 @@ export class OpenAIProvider extends KeyedProvider implements LLMProvider {
   }
 
   async *completeStream(prompt: string, options: LLMOptions = {}): AsyncGenerator<LLMStreamResponse> {
-    // Load configuration
-    const config = await chrome.storage.local.get(this.getStorageKey('openai'));
-    const providerConfig = config[this.getStorageKey('openai')];
-    
-    if (!providerConfig?.apiKey) {
+    if (!this.apiKey) {
       throw new Error('OpenAI provider not configured. Please provide a valid API key in settings.');
     }
 
     const requestBody = {
-      model: providerConfig.model || this.currentModel,
+      model: this.currentModel,
       messages: [{ role: 'user', content: prompt }],
       temperature: options.temperature ?? 0.7,
       max_tokens: options.maxTokens,
@@ -217,11 +144,11 @@ export class OpenAIProvider extends KeyedProvider implements LLMProvider {
     };
 
     try {
-      const response = await fetch(`${providerConfig.endpoint || this.endpoint}/v1/chat/completions`, {
+      const response = await fetch(`${this.endpoint}/v1/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${providerConfig.apiKey}`
+          'Authorization': `Bearer ${this.apiKey}`
         },
         body: JSON.stringify(requestBody)
       });
@@ -303,7 +230,7 @@ export class OpenAIProvider extends KeyedProvider implements LLMProvider {
   }
 
   getCurrentModel(): string {
-    return this.defaultModel; // Return default model since current model is loaded from config
+    return this.currentModel;
   }
 
   setModel(model: string): void {
@@ -311,9 +238,6 @@ export class OpenAIProvider extends KeyedProvider implements LLMProvider {
       throw new Error(`Invalid model. Available models: ${this.availableModels.join(', ')}`);
     }
     this.currentModel = model;
-    this.saveState().catch(error => {
-      this.logger.error('Failed to save model change', { error });
-    });
   }
 
   validateApiKey(apiKey: string): boolean {
@@ -330,6 +254,18 @@ export class OpenAIProvider extends KeyedProvider implements LLMProvider {
     }
     this.endpoint = endpoint;
     this.logger.debug('OpenAI endpoint set', { endpoint });
-    this.saveState();
+  }
+
+  // Methods to configure the provider (called by the UI layer)
+  configure(config: { apiKey?: string; model?: string; endpoint?: string }): void {
+    if (config.apiKey) {
+      this.apiKey = config.apiKey;
+    }
+    if (config.model) {
+      this.setModel(config.model);
+    }
+    if (config.endpoint) {
+      this.setEndpoint(config.endpoint);
+    }
   }
 }

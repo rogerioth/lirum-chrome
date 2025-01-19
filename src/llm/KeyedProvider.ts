@@ -27,4 +27,5 @@ export abstract class KeyedProvider implements LLMProvider {
     abstract validateApiKey?(apiKey: string): boolean;
     abstract validateEndpoint?(endpoint: string): boolean;
     abstract setEndpoint?(endpoint: string): void;
+    abstract configure(config: { apiKey?: string; model?: string; endpoint?: string }): void;
 }

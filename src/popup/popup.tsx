@@ -135,8 +135,8 @@ const Popup: React.FC = () => {
 
                 const storageManager = StorageManager.getInstance();
                 const [providers, commands] = await Promise.all([
-                    storageManager.getProviders(),
-                    storageManager.getCommands()
+                    storageManager.listProviders(),
+                    storageManager.listCommands()
                 ]);
 
                 // Filter valid providers

@@ -20,7 +20,7 @@ export class OllamaProvider extends KeyedProvider implements LLMProvider {
     defaultEndpoint = 'http://localhost:11434';
     private currentModel: string;
     private endpoint: string;
-    private readonly API_URL = '/api/chat';
+    private readonly API_URL = '/api/generate';
     protected readonly logger: Logger;
     private readonly ENDPOINT_PATTERN = /^https?:\/\/[^\s/$.?#].[^\s]*$/i;
 
@@ -148,9 +148,11 @@ export class OllamaProvider extends KeyedProvider implements LLMProvider {
                     model,
                     prompt,
                     stream: true,
-                    temperature: options.temperature || 0.7,
-                    top_p: 1,
-                    max_tokens: options.maxTokens || 1000
+                    options: {
+                        temperature: options.temperature || 0.7,
+                        top_p: 1,
+                        num_predict: options.maxTokens || 1000
+                    }
                 })
             });
 
@@ -161,12 +163,20 @@ export class OllamaProvider extends KeyedProvider implements LLMProvider {
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
             let buffer = '';
+            let hasReceivedContent = false;
 
             try {
                 while (true) {
                     const { done, value } = await reader.read();
                     
                     if (done) {
+                        if (!hasReceivedContent) {
+                            await this.logger.error('Stream completed without receiving any content', {
+                                model,
+                                endpoint: this.endpoint
+                            });
+                            throw new Error('Stream completed without receiving any content');
+                        }
                         yield { content: '', done: true };
                         break;
                     }
@@ -181,19 +191,39 @@ export class OllamaProvider extends KeyedProvider implements LLMProvider {
 
                         try {
                             const data = JSON.parse(trimmedLine);
+                            
+                            // Log raw response for debugging
+                            await this.logger.debug('Ollama raw response', {
+                                data: JSON.stringify(data).slice(0, 200)
+                            });
+
                             if (data.response) {
+                                hasReceivedContent = true;
                                 yield {
                                     content: data.response,
                                     done: false
                                 };
                             }
-                            // Check for completion
+
+                            // Only mark as done if we've received some content
                             if (data.done === true) {
+                                if (!hasReceivedContent) {
+                                    await this.logger.error('Ollama returned done without content', {
+                                        model,
+                                        endpoint: this.endpoint
+                                    });
+                                    throw new Error('Ollama returned done without providing any content');
+                                }
                                 yield { content: '', done: true };
                                 return;
                             }
                         } catch (e) {
-                            this.logger.error('Failed to parse Ollama streaming response', { error: e });
+                            await this.logger.error('Failed to parse Ollama streaming response', { 
+                                error: e,
+                                line: trimmedLine,
+                                model,
+                                endpoint: this.endpoint
+                            });
                         }
                     }
                 }
@@ -206,7 +236,6 @@ export class OllamaProvider extends KeyedProvider implements LLMProvider {
                 model,
                 error: error instanceof Error ? error.message : String(error)
             });
-            yield { content: '', done: true };
             throw error;
         }
     }
@@ -273,5 +302,15 @@ export class OllamaProvider extends KeyedProvider implements LLMProvider {
         } catch (error) {
             await this.logger.error('Failed to save Ollama provider state', { error });
         }
+    }
+
+    configure(config: { apiKey?: string; model?: string; endpoint?: string }): void {
+        if (config.model) {
+            this.setModel(config.model);
+        }
+        if (config.endpoint) {
+            this.setEndpoint(config.endpoint);
+        }
+        // Ollama doesn't use API keys, so we ignore that config
     }
 }

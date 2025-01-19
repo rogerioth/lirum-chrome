@@ -95,7 +95,6 @@ class OptionsManager {
         const typeSelect = document.getElementById('provider-type') as HTMLSelectElement;
         const endpointInput = document.getElementById('provider-endpoint') as HTMLInputElement;
         const apiKeyInput = document.getElementById('provider-apikey') as HTMLInputElement;
-        const modelSelect = document.getElementById('provider-model') as HTMLSelectElement;
         const testButton = document.getElementById('test-provider') as HTMLButtonElement;
 
         try {
@@ -138,26 +137,7 @@ class OptionsManager {
                 await provider.test(apiKeyInput.value);
             }
 
-            // Save provider configuration after successful test
-            const config: Provider = {
-                type,
-                name: provider.name,
-                endpoint: endpointInput.value,
-                apiKey: !isLocal ? apiKeyInput.value : undefined,
-                model: modelSelect.value || provider.defaultModel,
-                providerId: crypto.randomUUID()
-            };
-
-            // Save to chrome.storage
-            await this.storageManager.saveProvider(config);
-
-            await this.logger.info('Provider configuration saved', {
-                type,
-                model: config.model,
-                endpoint: config.endpoint
-            });
-
-            this.showMessage(`Provider configuration saved successfully!\nEndpoint: ${config.endpoint}\nModel: ${config.model}`, false, true);
+            this.showMessage('Connection test successful!', false, true);
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : 'Test failed';
             await this.logger.error('Provider test failed', {
@@ -194,20 +174,30 @@ class OptionsManager {
 
         // Provider management
         document.getElementById('add-provider')?.addEventListener('click', () => {
-            this.selectedProviderIndex = -1;  // Reset selection when adding new
+            this.selectedProviderIndex = -1;
             this.showProviderModal();
         });
 
         document.getElementById('edit-provider')?.addEventListener('click', () => {
-            this.editSelectedProvider();
+            const select = document.getElementById('providers-list') as HTMLSelectElement;
+            if (select?.value) {
+                const provider = this.providers.find(p => p.providerId === select.value);
+                if (provider) {
+                    this.showProviderModal(provider);
+                }
+            }
         });
 
         document.getElementById('remove-provider')?.addEventListener('click', () => {
-            this.removeSelectedProvider();
+            const select = document.getElementById('providers-list') as HTMLSelectElement;
+            if (select?.value && confirm('Are you sure you want to delete this provider?')) {
+                this.deleteProvider(select.value);
+            }
         });
 
         // Command management
         document.getElementById('add-command')?.addEventListener('click', () => {
+            this.selectedCommandIndex = -1;
             this.showCommandModal();
         });
         
@@ -218,8 +208,8 @@ class OptionsManager {
         });
         
         document.getElementById('remove-command')?.addEventListener('click', () => {
-            if (this.selectedCommandIndex !== -1) {
-                this.removeCommand();
+            if (this.selectedCommandIndex !== -1 && confirm('Are you sure you want to delete this command?')) {
+                this.deleteCommand(this.selectedCommandIndex);
             }
         });
 
@@ -245,12 +235,21 @@ class OptionsManager {
             this.testProvider();
         });
 
-        document.getElementById('modal-save')?.addEventListener('click', () => {
-            this.saveProviderModal();
+        document.getElementById('modal-save')?.addEventListener('click', async () => {
+            const select = document.getElementById('providers-list') as HTMLSelectElement;
+            if (this.selectedProviderIndex !== -1 && select?.value) {
+                await this.updateProvider(select.value);
+            } else {
+                await this.addProvider();
+            }
         });
 
-        document.getElementById('save-command')?.addEventListener('click', () => {
-            this.saveCommand();
+        document.getElementById('save-command')?.addEventListener('click', async () => {
+            if (this.selectedCommandIndex !== -1) {
+                await this.updateCommand(this.selectedCommandIndex);
+            } else {
+                await this.addCommand();
+            }
         });
 
         // Logs management
@@ -413,8 +412,8 @@ class OptionsManager {
     private async loadSettings(): Promise<void> {
         try {
             const [providers, commands] = await Promise.all([
-                this.storageManager.getProviders(),
-                this.storageManager.getCommands()
+                this.storageManager.listProviders(),
+                this.storageManager.listCommands()
             ]);
 
             this.providers = providers;
@@ -431,13 +430,13 @@ class OptionsManager {
     private async saveSettings(): Promise<void> {
         try {
             await Promise.all([
-                Promise.all(this.providers.map(provider => 
-                    this.storageManager.saveProvider({
-                        ...provider,
-                        providerId: provider.providerId || crypto.randomUUID() // Ensure providerId exists
-                    })
-                )),
-                this.storageManager.saveCommands(this.commands)
+                ...this.providers.map(provider => {
+                    const { providerId, ...updates } = provider;
+                    return providerId 
+                        ? this.storageManager.updateProvider(providerId, updates)
+                        : this.storageManager.createProvider(updates);
+                }),
+                this.storageManager.updateCommands(this.commands)
             ]);
         } catch (error) {
             throw new Error('Failed to save settings: ' + (error instanceof Error ? error.message : 'Unknown error'));
@@ -523,53 +522,89 @@ class OptionsManager {
         modal.style.display = 'none';
     }
 
-    private async saveCommand(): Promise<void> {
+    private async addCommand(): Promise<void> {
         const nameInput = document.getElementById('command-name') as HTMLInputElement;
         const iconInput = document.getElementById('command-icon') as HTMLInputElement;
         const promptInput = document.getElementById('command-prompt') as HTMLTextAreaElement;
-        const modal = document.getElementById('command-modal') as HTMLElement;
-        
+
         if (!nameInput.value || !promptInput.value) {
-            this.showMessage('Please fill in all fields', true);
+            this.showMessage('Please fill in all required fields', true);
             return;
         }
-        
+
         const command: Command = {
             name: nameInput.value,
             icon: iconInput.value || 'fa-solid fa-terminal',
             prompt: promptInput.value
         };
-        
-        if (this.selectedCommandIndex !== -1) {
-            // Edit existing command
-            this.commands[this.selectedCommandIndex] = command;
-        } else {
-            // Add new command
+
+        try {
             this.commands.push(command);
+            await this.storageManager.updateCommands(this.commands);
+            
+            this.updateCommandsList();
+            this.hideCommandModal();
+            this.showMessage('Command added successfully');
+        } catch (error) {
+            await this.logger.error('Failed to add command', { error });
+            this.showMessage('Failed to add command', true);
         }
-        
-        await this.saveSettings();
-        this.updateCommandsList();
-        modal.style.display = 'none';
     }
 
-    private async removeCommand(): Promise<void> {
-        if (this.selectedCommandIndex === -1) return;
-        
-        if (confirm('Are you sure you want to remove this command?')) {
-            this.commands.splice(this.selectedCommandIndex, 1);
-            this.selectedCommandIndex = -1;
-            await this.saveSettings();
+    private async updateCommand(index: number): Promise<void> {
+        const nameInput = document.getElementById('command-name') as HTMLInputElement;
+        const iconInput = document.getElementById('command-icon') as HTMLInputElement;
+        const promptInput = document.getElementById('command-prompt') as HTMLTextAreaElement;
+
+        if (!nameInput.value || !promptInput.value) {
+            this.showMessage('Please fill in all required fields', true);
+            return;
+        }
+
+        const command: Command = {
+            name: nameInput.value,
+            icon: iconInput.value || 'fa-solid fa-terminal',
+            prompt: promptInput.value
+        };
+
+        try {
+            this.commands[index] = command;
+            await this.storageManager.updateCommands(this.commands);
+            
             this.updateCommandsList();
+            this.hideCommandModal();
+            this.showMessage('Command updated successfully');
+        } catch (error) {
+            await this.logger.error('Failed to update command', { error });
+            this.showMessage('Failed to update command', true);
+        }
+    }
+
+    private async deleteCommand(index: number): Promise<void> {
+        try {
+            this.commands.splice(index, 1);
+            await this.storageManager.updateCommands(this.commands);
+            
+            this.selectedCommandIndex = -1;
+            this.updateCommandsList();
+            this.showMessage('Command deleted successfully');
+        } catch (error) {
+            await this.logger.error('Failed to delete command', { error });
+            this.showMessage('Failed to delete command', true);
         }
     }
 
     private async resetCommands(): Promise<void> {
-        if (confirm('Are you sure that you want to reset all commands to the built-in ones?')) {
+        try {
             this.commands = [...DEFAULT_COMMANDS];
+            await this.storageManager.updateCommands(this.commands);
+            
             this.selectedCommandIndex = -1;
-            await this.saveSettings();
             this.updateCommandsList();
+            this.showMessage('Commands reset to defaults');
+        } catch (error) {
+            await this.logger.error('Failed to reset commands', { error });
+            this.showMessage('Failed to reset commands', true);
         }
     }
 
@@ -769,7 +804,7 @@ class OptionsManager {
         }
     }
 
-    private async saveProviderModal(): Promise<void> {
+    private async addProvider(): Promise<void> {
         const typeSelect = document.getElementById('provider-type') as HTMLSelectElement;
         const nameInput = document.getElementById('provider-name') as HTMLInputElement;
         const apiKeyInput = document.getElementById('provider-apikey') as HTMLInputElement;
@@ -787,51 +822,76 @@ class OptionsManager {
             return;
         }
 
-        // Create or update provider
-        const provider: Provider = this.selectedProviderIndex !== -1 
-            ? {
-                ...this.providers[this.selectedProviderIndex],
-                type,
-                name,
-                apiKey,
-                endpoint,
-                model
-            }
-            : {
-                type,
-                name,
-                apiKey,
-                endpoint,
-                model,
-                providerId: crypto.randomUUID()
-            };
-
-        // Update providers array
-        if (this.selectedProviderIndex !== -1) {
-            this.providers[this.selectedProviderIndex] = provider;
-        } else {
-            this.providers.push(provider);
-        }
-
         try {
-            await this.saveSettings();
-
-            await this.logger.info('Provider configuration saved', {
-                guid: provider.providerId,
+            const newProvider = await this.storageManager.createProvider({
                 type,
                 name,
-                hasApiKey: Boolean(apiKey),
-                hasEndpoint: Boolean(endpoint),
+                apiKey,
+                endpoint,
                 model
             });
 
-            // Update UI
+            this.providers.push(newProvider);
+            await this.logger.info('Provider added', { type, name });
+            
             this.renderProviders();
             this.hideProviderModal();
-            this.showMessage('Provider saved successfully');
+            this.showMessage('Provider added successfully');
         } catch (error) {
-            await this.logger.error('Failed to save provider', { error });
-            this.showMessage('Failed to save provider configuration', true);
+            await this.logger.error('Failed to add provider', { error });
+            this.showMessage('Failed to add provider', true);
+        }
+    }
+
+    private async updateProvider(providerId: string): Promise<void> {
+        const typeSelect = document.getElementById('provider-type') as HTMLSelectElement;
+        const nameInput = document.getElementById('provider-name') as HTMLInputElement;
+        const apiKeyInput = document.getElementById('provider-apikey') as HTMLInputElement;
+        const endpointInput = document.getElementById('provider-endpoint') as HTMLInputElement;
+        const modelInput = document.getElementById('provider-model') as HTMLInputElement;
+
+        const updates = {
+            type: typeSelect.value as ProviderType,
+            name: nameInput.value,
+            apiKey: apiKeyInput.value,
+            endpoint: endpointInput.value,
+            model: modelInput.value
+        };
+
+        if (!updates.name || !updates.model) {
+            this.showMessage('Please fill in all required fields', true);
+            return;
+        }
+
+        try {
+            const updatedProvider = await this.storageManager.updateProvider(providerId, updates);
+            const index = this.providers.findIndex(p => p.providerId === providerId);
+            if (index !== -1) {
+                this.providers[index] = updatedProvider;
+            }
+
+            await this.logger.info('Provider updated', { providerId });
+            this.renderProviders();
+            this.hideProviderModal();
+            this.showMessage('Provider updated successfully');
+        } catch (error) {
+            await this.logger.error('Failed to update provider', { error });
+            this.showMessage('Failed to update provider', true);
+        }
+    }
+
+    private async deleteProvider(providerId: string): Promise<void> {
+        try {
+            await this.storageManager.deleteProvider(providerId);
+            this.providers = this.providers.filter(p => p.providerId !== providerId);
+            this.selectedProviderIndex = -1;
+
+            await this.logger.info('Provider deleted', { providerId });
+            this.renderProviders();
+            this.showMessage('Provider deleted successfully');
+        } catch (error) {
+            await this.logger.error('Failed to delete provider', { error });
+            this.showMessage('Failed to delete provider', true);
         }
     }
 
@@ -934,53 +994,6 @@ class OptionsManager {
         }
     }
 
-    private editSelectedProvider(): void {
-        const select = document.getElementById('providers-list') as HTMLSelectElement;
-        if (!select || select.selectedIndex === -1) return;
-
-        const selectedProviderId = select.value;
-        const providerIndex = this.providers.findIndex(p => p.providerId === selectedProviderId);
-        if (providerIndex === -1) return;
-
-        this.selectedProviderIndex = providerIndex;
-        const provider = this.providers[providerIndex];
-        this.showProviderModal(provider);
-    }
-
-    private async removeSelectedProvider(): Promise<void> {
-        const select = document.getElementById('providers-list') as HTMLSelectElement;
-        if (!select || select.selectedIndex === -1) return;
-
-        const selectedProviderId = select.value;
-        const providerIndex = this.providers.findIndex(p => p.providerId === selectedProviderId);
-        if (providerIndex === -1) return;
-
-        try {
-            const provider = this.providers[providerIndex];
-            const type = provider.type;
-
-            // Remove from providers array
-            this.providers.splice(providerIndex, 1);
-            this.selectedProviderIndex = -1;
-
-            // Remove from both storage formats
-            await Promise.all([
-                // Remove from array format
-                chrome.storage.sync.set({ providers: this.providers }),
-                
-                // Remove from provider-specific format
-                chrome.storage.local.remove(`${provider.providerId}_${provider.type}_provider_config`)
-            ]);
-
-            await this.logger.info('Provider removed', { type });
-            this.renderProviders();
-            this.showMessage('Provider removed successfully');
-        } catch (error) {
-            await this.logger.error('Failed to remove provider', { error });
-            this.showMessage('Failed to remove provider', true);
-        }
-    }
-
     private updateProviderFields(): void {
         const typeSelect = document.getElementById('provider-type') as HTMLSelectElement;
         const apiKeyGroup = document.getElementById('api-key-group');
@@ -1010,7 +1023,7 @@ class OptionsManager {
 
     private async factoryReset(): Promise<void> {
         try {
-            await this.storageManager.factoryReset();
+            await this.storageManager.resetToDefaults();
             
             // Reset local state
             this.providers = [];

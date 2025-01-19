@@ -288,4 +288,19 @@ export class AnthropicProvider extends KeyedProvider implements LLMProvider {
   validateEndpoint(endpoint: string): boolean {
     return this.ENDPOINT_PATTERN.test(endpoint);
   }
+
+  configure(config: { apiKey?: string; model?: string; endpoint?: string }): void {
+    if (config.apiKey) {
+      if (!this.validateApiKey(config.apiKey)) {
+        throw new Error('Invalid API key format');
+      }
+      this.apiKey = config.apiKey;
+    }
+    if (config.model) {
+      this.setModel(config.model);
+    }
+    if (config.endpoint) {
+      this.setEndpoint(config.endpoint);
+    }
+  }
 }
