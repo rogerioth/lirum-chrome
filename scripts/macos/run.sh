@@ -9,11 +9,10 @@ PROJECT_ROOT="$SCRIPT_DIR/../.."
 # Build the extension
 npm run build
 
-# Clean up existing temp directory
-rm -rf "$PROJECT_ROOT/temp-chrome-data"
-
-# Create a fresh temporary user data directory
-mkdir -p "$PROJECT_ROOT/temp-chrome-data"
+# Create a temporary user data directory if it doesn't exist
+if [ ! -d "$PROJECT_ROOT/temp-chrome-data" ]; then
+    mkdir -p "$PROJECT_ROOT/temp-chrome-data"
+fi
 
 # Check if Chrome exists in common locations
 CHROME_PATH=""
