@@ -1,20 +1,59 @@
 import { LLMProvider, LLMResponse, LLMOptions, LLMStreamResponse } from './LLMProvider';
 import { Logger } from '../utils/Logger';
+import { KeyedProvider } from './KeyedProvider';
 
-export class LMStudioProvider implements LLMProvider {
+export class LMStudioProvider extends KeyedProvider implements LLMProvider {
   name = 'LM Studio';
   defaultModel = 'local-model';
   availableModels = ['local-model'];
   defaultEndpoint = 'http://localhost:1234';
-
-  private endpoint: string | null = null;
   private currentModel: string;
-  private readonly logger: Logger;
+  private endpoint: string | null = null;
+  private readonly API_URL = '/v1/chat/completions';
   private readonly ENDPOINT_PATTERN = /^https?:\/\/[^\s/$.?#].[^\s]*$/i;
+  protected readonly logger: Logger;
 
   constructor() {
+    super();
     this.currentModel = this.defaultModel;
     this.logger = Logger.getInstance();
+    this.loadState();
+  }
+
+  private async loadState(): Promise<void> {
+    try {
+      const data = await chrome.storage.local.get(this.getStorageKey('lmstudio'));
+      const state = data[this.getStorageKey('lmstudio')];
+      if (state) {
+        this.endpoint = state.endpoint;
+        this.currentModel = state.model || this.defaultModel;
+        await this.logger.debug('LM Studio provider state loaded', {
+          endpoint: this.endpoint,
+          currentModel: this.currentModel,
+          key: this.key
+        });
+      }
+    } catch (error) {
+      await this.logger.error('Failed to load LM Studio provider state', { error });
+    }
+  }
+
+  private async saveState(): Promise<void> {
+    try {
+      await chrome.storage.local.set({
+        [this.getStorageKey('lmstudio')]: {
+          endpoint: this.endpoint,
+          model: this.currentModel
+        }
+      });
+      await this.logger.debug('LM Studio provider state saved', {
+        endpoint: this.endpoint,
+        currentModel: this.currentModel,
+        key: this.key
+      });
+    } catch (error) {
+      await this.logger.error('Failed to save LM Studio provider state', { error });
+    }
   }
 
   private getEndpointUrl(path: string): string {
@@ -232,6 +271,7 @@ export class LMStudioProvider implements LLMProvider {
   setModel(model: string): void {
     this.currentModel = model;
     this.logger.debug('LM Studio model set', { model });
+    this.saveState();
   }
 
   validateEndpoint(endpoint: string): boolean {
@@ -244,5 +284,10 @@ export class LMStudioProvider implements LLMProvider {
     }
     this.endpoint = endpoint;
     this.logger.debug('LM Studio endpoint set', { endpoint });
+    this.saveState();
+  }
+
+  validateApiKey(apiKey: string): boolean {
+    return true; // LM Studio doesn't use API keys
   }
 }

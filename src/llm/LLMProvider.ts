@@ -32,6 +32,7 @@ export interface LLMProvider {
   defaultModel: string;
   availableModels: string[];
   defaultEndpoint?: string;
+  readonly key: string;  // Unique identifier for the provider instance
 
   test(apiKey?: string, endpoint?: string): Promise<void>;
   complete(prompt: string, options?: LLMOptions): Promise<LLMResponse>;
@@ -41,4 +42,4 @@ export interface LLMProvider {
   validateApiKey?(apiKey: string): boolean;
   validateEndpoint?(endpoint: string): boolean;
   setEndpoint?(endpoint: string): void;
-} 
+}

@@ -1,7 +1,8 @@
 import { LLMProvider, LLMResponse, LLMOptions, LLMStreamResponse } from './LLMProvider';
 import { Logger } from '../utils/Logger';
+import { KeyedProvider } from './KeyedProvider';
 
-export class AnthropicProvider implements LLMProvider {
+export class AnthropicProvider extends KeyedProvider implements LLMProvider {
   name = 'Anthropic';
   defaultModel = 'claude-3-5-sonnet-latest';
   availableModels = [
@@ -13,15 +14,59 @@ export class AnthropicProvider implements LLMProvider {
     'claude-3-haiku-20240307'
   ];
 
+  defaultEndpoint = 'https://api.anthropic.com';
+
   private currentModel: string;
-  private readonly logger: Logger;
+  protected readonly logger: Logger;
   private readonly API_URL = 'https://api.anthropic.com/v1/messages';
   private readonly API_VERSION = '2023-06-01';
   private readonly API_KEY_PATTERN = /^.{5,}$/;
+  private readonly ENDPOINT_PATTERN = /^https?:\/\/[^\s/$.?#].[^\s]*$/i;
+
+  private apiKey: string | null = null;
+  private endpoint: string = this.defaultEndpoint;
 
   constructor() {
+    super();
     this.currentModel = this.defaultModel;
     this.logger = Logger.getInstance();
+    this.loadState();
+  }
+
+  private async loadState(): Promise<void> {
+    try {
+      const data = await chrome.storage.local.get(this.getStorageKey('anthropic'));
+      const state = data[this.getStorageKey('anthropic')];
+      if (state) {
+        this.apiKey = state.apiKey;
+        this.currentModel = state.model || this.defaultModel;
+        this.endpoint = state.endpoint || this.defaultEndpoint;
+        await this.logger.debug('Anthropic provider state loaded', {
+          currentModel: this.currentModel,
+          key: this.key
+        });
+      }
+    } catch (error) {
+      await this.logger.error('Failed to load Anthropic provider state', { error });
+    }
+  }
+
+  private async saveState(): Promise<void> {
+    try {
+      await chrome.storage.local.set({
+        [this.getStorageKey('anthropic')]: {
+          apiKey: this.apiKey,
+          model: this.currentModel,
+          endpoint: this.endpoint
+        }
+      });
+      await this.logger.debug('Anthropic provider state saved', {
+        currentModel: this.currentModel,
+        key: this.key
+      });
+    } catch (error) {
+      await this.logger.error('Failed to save Anthropic provider state', { error });
+    }
   }
 
   async test(apiKey?: string, endpoint?: string): Promise<void> {
@@ -31,7 +76,7 @@ export class AnthropicProvider implements LLMProvider {
 
     // Test the API key with a simple models list request
     try {
-      const response = await fetch('https://api.anthropic.com/v1/models', {
+      const response = await fetch(`${endpoint}/v1/models`, {
         headers: {
           'x-api-key': apiKey,
           'anthropic-version': this.API_VERSION,
@@ -55,10 +100,7 @@ export class AnthropicProvider implements LLMProvider {
 
   async complete(prompt: string, options: LLMOptions = {}): Promise<LLMResponse> {
     // Load configuration
-    const config = await chrome.storage.local.get('anthropic_provider_config');
-    const providerConfig = config['anthropic_provider_config'];
-    
-    if (!providerConfig?.apiKey) {
+    if (!this.apiKey) {
       throw new Error('Anthropic provider not configured. Please provide a valid API key in settings.');
     }
 
@@ -73,11 +115,11 @@ export class AnthropicProvider implements LLMProvider {
     };
 
     try {
-      const response = await fetch(this.API_URL, {
+      const response = await fetch(`${this.endpoint}/v1/messages`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-api-key': providerConfig.apiKey,
+          'x-api-key': this.apiKey,
           'anthropic-version': this.API_VERSION,
           'anthropic-dangerous-direct-browser-access': 'true'
         },
@@ -118,10 +160,7 @@ export class AnthropicProvider implements LLMProvider {
 
   async *completeStream(prompt: string, options: LLMOptions = {}): AsyncGenerator<LLMStreamResponse> {
     // Load configuration
-    const config = await chrome.storage.local.get('anthropic_provider_config');
-    const providerConfig = config['anthropic_provider_config'];
-    
-    if (!providerConfig?.apiKey) {
+    if (!this.apiKey) {
       throw new Error('Anthropic provider not configured. Please provide a valid API key in settings.');
     }
 
@@ -136,11 +175,11 @@ export class AnthropicProvider implements LLMProvider {
     };
 
     try {
-      const response = await fetch(this.API_URL, {
+      const response = await fetch(`${this.endpoint}/v1/messages`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-api-key': providerConfig.apiKey,
+          'x-api-key': this.apiKey,
           'anthropic-version': this.API_VERSION,
           'anthropic-dangerous-direct-browser-access': 'true'
         },
@@ -212,7 +251,16 @@ export class AnthropicProvider implements LLMProvider {
   }
 
   getCurrentModel(): string {
-    return this.defaultModel; // Return default model since current model is loaded from config
+    return this.currentModel;
+  }
+
+  setApiKey(apiKey: string): void {
+    if (!this.validateApiKey(apiKey)) {
+      throw new Error('Invalid API key format');
+    }
+    this.apiKey = apiKey;
+    this.logger.debug('Anthropic API key set');
+    this.saveState();
   }
 
   setModel(model: string): void {
@@ -220,9 +268,24 @@ export class AnthropicProvider implements LLMProvider {
       throw new Error(`Invalid model. Available models: ${this.availableModels.join(', ')}`);
     }
     this.currentModel = model;
+    this.logger.debug('Anthropic model set', { model });
+    this.saveState();
+  }
+
+  setEndpoint(endpoint: string): void {
+    if (!this.validateEndpoint(endpoint)) {
+      throw new Error('Invalid endpoint URL format');
+    }
+    this.endpoint = endpoint;
+    this.logger.debug('Anthropic endpoint set', { endpoint });
+    this.saveState();
   }
 
   validateApiKey(apiKey: string): boolean {
     return this.API_KEY_PATTERN.test(apiKey);
   }
-} 
+
+  validateEndpoint(endpoint: string): boolean {
+    return this.ENDPOINT_PATTERN.test(endpoint);
+  }
+}
