@@ -165,9 +165,7 @@ export class AnthropicProvider implements LLMProvider {
           const { done, value } = await reader.read();
           
           if (done) {
-            if (buffer) {
-              yield { content: buffer, done: true };
-            }
+            yield { content: '', done: true };
             break;
           }
 
@@ -177,7 +175,13 @@ export class AnthropicProvider implements LLMProvider {
 
           for (const line of lines) {
             const trimmedLine = line.trim();
-            if (!trimmedLine || trimmedLine === 'event: done') continue;
+            if (!trimmedLine) continue;
+
+            // Handle stream end event
+            if (trimmedLine === 'event: done' || trimmedLine === 'data: [DONE]') {
+              yield { content: '', done: true };
+              return;
+            }
 
             if (trimmedLine.startsWith('data: ')) {
               try {
@@ -187,6 +191,9 @@ export class AnthropicProvider implements LLMProvider {
                     content: data.delta.text,
                     done: false
                   };
+                } else if (data.type === 'message_stop') {
+                  yield { content: '', done: true };
+                  return;
                 }
               } catch (e) {
                 this.logger.error('Failed to parse streaming response', { error: e });
@@ -199,6 +206,7 @@ export class AnthropicProvider implements LLMProvider {
       }
     } catch (error) {
       await this.logger.error('Anthropic streaming failed', { error });
+      yield { content: '', done: true };
       throw error;
     }
   }
