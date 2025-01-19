@@ -42,6 +42,7 @@ interface LLMProvider {
     endpoint?: string;
     apiKey?: string;
     model: string;
+    guid: string;
 }
 
 const PROVIDER_TYPES: ProviderType[] = LLMProviderFactory.getProviderTypes();
@@ -445,12 +446,15 @@ class OptionsManager {
             const [legacySyncSettings, legacyLocalSettings, providerConfigs] = await Promise.all([
                 chrome.storage.sync.get(['providers']),
                 chrome.storage.local.get(['providers']),
-                chrome.storage.local.get(PROVIDER_TYPES.map(type => `${type}_provider_config`))
+                chrome.storage.local.get(null) // Get all storage to find provider configs
             ]);
 
             // Start with sync storage providers
             if (legacySyncSettings.providers) {
-                this.providers = [...legacySyncSettings.providers];
+                this.providers = [...legacySyncSettings.providers].map(p => ({
+                    ...p,
+                    guid: p.guid || crypto.randomUUID() // Ensure all providers have GUIDs
+                }));
                 await this.logger.info('Legacy sync providers loaded', { count: this.providers.length });
             }
 
@@ -458,48 +462,54 @@ class OptionsManager {
             if (legacyLocalSettings.providers) {
                 // Update existing providers or add new ones
                 legacyLocalSettings.providers.forEach(localProvider => {
-                    const existingIndex = this.providers.findIndex(p => p.type === localProvider.type);
+                    const existingIndex = this.providers.findIndex(p => p.guid === localProvider.guid);
                     if (existingIndex !== -1) {
                         this.providers[existingIndex] = {
                             ...this.providers[existingIndex],
                             ...localProvider
                         };
                     } else {
-                        this.providers.push(localProvider);
+                        this.providers.push({
+                            ...localProvider,
+                            guid: localProvider.guid || crypto.randomUUID()
+                        });
                     }
                 });
                 await this.logger.info('Legacy local providers merged', { count: this.providers.length });
             }
 
             // Finally, merge with individual provider configs
-            for (const type of PROVIDER_TYPES) {
-                const configKey = `${type}_provider_config`;
-                const config = providerConfigs[configKey];
-
-                if (config) {
-                    const existingIndex = this.providers.findIndex(p => p.type === type);
-                    
-                    if (existingIndex !== -1) {
-                        // Update existing provider with new config
-                        this.providers[existingIndex] = {
-                            ...this.providers[existingIndex],
-                            ...config,
-                            type, // Ensure type is preserved
-                            name: config.name || this.providers[existingIndex].name || LLMProviderFactory.getProviderName(type)
-                        };
-                    } else {
-                        // Add new provider
-                        this.providers.push({
-                            type,
-                            name: config.name || LLMProviderFactory.getProviderName(type),
-                            ...config
-                        });
+            for (const key of Object.keys(providerConfigs)) {
+                if (key.endsWith('_provider_config')) {
+                    const config = providerConfigs[key];
+                    if (config && config.guid) {
+                        const existingIndex = this.providers.findIndex(p => p.guid === config.guid);
+                        const type = key.replace('_provider_config', '') as ProviderType;
+                        
+                        if (existingIndex !== -1) {
+                            // Update existing provider with new config
+                            this.providers[existingIndex] = {
+                                ...this.providers[existingIndex],
+                                ...config,
+                                type, // Ensure type is preserved
+                                name: config.name || this.providers[existingIndex].name || LLMProviderFactory.getProviderName(type)
+                            };
+                        } else {
+                            // Add new provider
+                            this.providers.push({
+                                type,
+                                name: config.name || LLMProviderFactory.getProviderName(type),
+                                guid: config.guid,
+                                ...config
+                            });
+                        }
                     }
                 }
             }
 
             // Log the final state
             const redactedProviders = this.providers.map(p => ({
+                guid: p.guid,
                 type: p.type,
                 name: p.name,
                 hasApiKey: Boolean(p.apiKey),
@@ -523,10 +533,31 @@ class OptionsManager {
 
     private async saveSettings(): Promise<void> {
         try {
-            await chrome.storage.sync.set({
-                providers: this.providers,
-                commands: this.commands
-            });
+            // Save providers array to both sync and local storage
+            await Promise.all([
+                chrome.storage.sync.set({
+                    providers: this.providers,
+                    commands: this.commands
+                }),
+                chrome.storage.local.set({
+                    providers: this.providers
+                })
+            ]);
+
+            // Save individual provider configs using GUID as part of the key
+            const providerConfigs = this.providers.reduce((configs, provider) => ({
+                ...configs,
+                [`${provider.guid}_${provider.type}_provider_config`]: {
+                    guid: provider.guid,
+                    apiKey: provider.apiKey,
+                    endpoint: provider.endpoint,
+                    model: provider.model,
+                    name: provider.name
+                }
+            }), {});
+
+            await chrome.storage.local.set(providerConfigs);
+
             this.showMessage('Settings saved successfully!');
         } catch (error) {
             this.showMessage('Error saving settings!', true);
@@ -877,14 +908,24 @@ class OptionsManager {
             return;
         }
 
-        // Create provider
-        const provider: LLMProvider = {
-            type,
-            name,
-            apiKey,
-            endpoint,
-            model
-        };
+        // Create or update provider
+        const provider: LLMProvider = this.selectedProviderIndex !== -1 
+            ? {
+                ...this.providers[this.selectedProviderIndex],
+                type,
+                name,
+                apiKey,
+                endpoint,
+                model
+            }
+            : {
+                type,
+                name,
+                apiKey,
+                endpoint,
+                model,
+                guid: crypto.randomUUID() // Generate new GUID for new providers
+            };
 
         // Update providers array
         if (this.selectedProviderIndex !== -1) {
@@ -894,24 +935,10 @@ class OptionsManager {
         }
 
         try {
-            // Save in both storage types and formats
-            await Promise.all([
-                // Save in array format to both storages
-                chrome.storage.sync.set({ providers: this.providers }),
-                chrome.storage.local.set({ providers: this.providers }),
-                
-                // Save in provider-specific format
-                chrome.storage.local.set({
-                    [`${type}_provider_config`]: {
-                        apiKey,
-                        endpoint,
-                        model,
-                        name
-                    }
-                })
-            ]);
+            await this.saveSettings();
 
             await this.logger.info('Provider configuration saved', {
+                guid: provider.guid,
                 type,
                 name,
                 hasApiKey: Boolean(apiKey),
@@ -923,9 +950,6 @@ class OptionsManager {
             this.renderProviders();
             this.hideProviderModal();
             this.showMessage('Provider saved successfully');
-            
-            // Force reload settings to ensure everything is in sync
-            await this.loadSettings();
         } catch (error) {
             await this.logger.error('Failed to save provider', { error });
             this.showMessage('Failed to save provider configuration', true);
@@ -1053,7 +1077,7 @@ class OptionsManager {
                 chrome.storage.sync.set({ providers: this.providers }),
                 
                 // Remove from provider-specific format
-                chrome.storage.local.remove(`${type}_provider_config`)
+                chrome.storage.local.remove(`${provider.guid}_${provider.type}_provider_config`)
             ]);
 
             await this.logger.info('Provider removed', { type });
