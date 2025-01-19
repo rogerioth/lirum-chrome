@@ -14,10 +14,25 @@ interface Provider {
     model?: string;
 }
 
+interface Command {
+    name: string;
+    icon: string;
+    prompt: string;
+}
+
+const DEFAULT_COMMANDS: Command[] = [
+    { name: 'Summarize', icon: 'fa-solid fa-compress', prompt: 'Please provide a concise summary of the following content:' },
+    { name: 'Paraphrase', icon: 'fa-solid fa-pen', prompt: 'Please rewrite the following content in different words while maintaining its meaning:' },
+    { name: 'Bullet Points', icon: 'fa-solid fa-list', prompt: 'Please convert the following content into clear, organized bullet points:' },
+    { name: 'Translate', icon: 'fa-solid fa-language', prompt: 'Please translate the following content to English (or specify target language):' },
+    { name: 'Analyze Tone', icon: 'fa-solid fa-face-smile', prompt: 'Please analyze the tone and emotional content of the following text:' }
+];
+
 interface PopupState {
     providers: Provider[];
     selectedProvider: string;
     command: string;
+    commands: Command[];
     isLoading: boolean;
     isInitializing: boolean;
     error: string | null;
@@ -30,14 +45,6 @@ interface PopupState {
     isProcessing: boolean;
 }
 
-const DEFAULT_COMMANDS = [
-    'Summarize',
-    'Paraphrase',
-    'Bullet Points',
-    'Translate',
-    'Analyze Tone'
-];
-
 // Add a new class name helper function at the top level
 const classNames = (...classes: (string | boolean | undefined)[]) => {
     return classes.filter(Boolean).join(' ');
@@ -48,7 +55,8 @@ const Popup: React.FC = () => {
     const [state, setState] = useState<PopupState>({
         providers: [],
         selectedProvider: '',
-        command: DEFAULT_COMMANDS[0],
+        command: '',
+        commands: [],
         isLoading: false,
         isInitializing: true,
         error: null,
@@ -96,18 +104,26 @@ const Popup: React.FC = () => {
                     return;
                 }
 
-                // Load providers from both storage types
-                const [syncData, localData, providerConfigs] = await Promise.all([
+                // Load providers and commands from storage
+                const [syncData, localData, providerConfigs, commandData] = await Promise.all([
                     chrome.storage.sync.get('providers'),
                     chrome.storage.local.get('providers'),
                     chrome.storage.local.get(
                         Object.values(LLMProviderFactory.getProviderTypes())
                             .map(type => `${type}_provider_config`)
-                    )
+                    ),
+                    chrome.storage.sync.get('commands')
                 ]);
 
-                // Start with sync providers
-                let allProviders = syncData.providers || [];
+                // Get commands from storage or use defaults
+                const commands = commandData.commands || DEFAULT_COMMANDS;
+                const firstCommand = commands[0]?.name || '';
+
+                // Load providers from both storage types
+                const [allProviders] = await Promise.all([
+                    syncData.providers || [],
+                    localData.providers || []
+                ]);
 
                 // Merge with local storage providers
                 if (localData.providers) {
@@ -207,7 +223,7 @@ const Popup: React.FC = () => {
                         type: 'GET_PAGE_CONTENT' 
                     });
                     
-                    handleContentResponse(contentResponse, validProviders, firstProvider.type);
+                    handleContentResponse(contentResponse, validProviders, firstProvider.type, commands);
                 } catch (error) {
                     logger.debug('Content script not ready, injecting...', { error });
                     
@@ -226,7 +242,7 @@ const Popup: React.FC = () => {
                             type: 'GET_PAGE_CONTENT' 
                         });
                         
-                        handleContentResponse(contentResponse, validProviders, firstProvider.type);
+                        handleContentResponse(contentResponse, validProviders, firstProvider.type, commands);
                     } catch (retryError) {
                         throw new Error('Failed to get page content after script injection');
                     }
@@ -247,7 +263,8 @@ const Popup: React.FC = () => {
         const handleContentResponse = (
             contentResponse: any, 
             validProviders: any[], 
-            selectedProvider: string
+            selectedProvider: string,
+            commands: Command[]
         ) => {
             if (contentResponse?.error) {
                 throw new Error(`Content extraction failed: ${contentResponse.error}`);
@@ -256,7 +273,8 @@ const Popup: React.FC = () => {
             setState({
                 providers: validProviders,
                 selectedProvider: selectedProvider,
-                command: DEFAULT_COMMANDS[0],
+                command: commands[0]?.name || '',
+                commands: commands,
                 isLoading: false,
                 isInitializing: false,
                 error: null,
@@ -464,14 +482,15 @@ const Popup: React.FC = () => {
                     ))}
                 </select>
 
-                <select 
+                <select
+                    className="command-select"
                     value={state.command}
                     onChange={e => setState(prev => ({ ...prev, command: e.target.value }))}
                     disabled={state.isLoading}
                 >
-                    {DEFAULT_COMMANDS.map(command => (
-                        <option key={command} value={command}>
-                            {command}
+                    {state.providers.length > 0 && state.commands.map(command => (
+                        <option key={command.name} value={command.name}>
+                            {command.name}
                         </option>
                     ))}
                 </select>
