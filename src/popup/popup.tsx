@@ -303,9 +303,8 @@ const Popup: React.FC = () => {
                         // Create new response by concatenating the new chunk
                         const newResponse = (prev.response || '') + message.content;
                         
-                        // Only convert the new chunk to HTML for efficiency
-                        const newChunkHtml = message.content ? markdownToHtml(message.content) : '';
-                        const newHtml = prev.responseHtml + newChunkHtml;
+                        // Convert the entire response to HTML
+                        const newHtml = markdownToHtml(newResponse);
                         
                         return {
                             ...prev,
