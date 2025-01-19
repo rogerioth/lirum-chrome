@@ -178,9 +178,7 @@ export class LMStudioProvider implements LLMProvider {
           const { done, value } = await reader.read();
           
           if (done) {
-            if (buffer) {
-              yield { content: buffer, done: true };
-            }
+            yield { content: '', done: true };
             break;
           }
 
@@ -190,7 +188,13 @@ export class LMStudioProvider implements LLMProvider {
 
           for (const line of lines) {
             const trimmedLine = line.trim();
-            if (!trimmedLine || trimmedLine === 'data: [DONE]') continue;
+            if (!trimmedLine || trimmedLine === 'data: [DONE]') {
+              if (trimmedLine === 'data: [DONE]') {
+                yield { content: '', done: true };
+                return;
+              }
+              continue;
+            }
 
             if (trimmedLine.startsWith('data: ')) {
               try {
@@ -201,8 +205,13 @@ export class LMStudioProvider implements LLMProvider {
                     done: false
                   };
                 }
+                // Check for completion in the delta
+                if (data.choices?.[0]?.finish_reason === 'stop') {
+                  yield { content: '', done: true };
+                  return;
+                }
               } catch (e) {
-                this.logger.error('Failed to parse streaming response', { error: e });
+                await this.logger.error('Failed to parse streaming response', { error: e });
               }
             }
           }
