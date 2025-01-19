@@ -163,9 +163,7 @@ export class OllamaProvider implements LLMProvider {
                     const { done, value } = await reader.read();
                     
                     if (done) {
-                        if (buffer) {
-                            yield { content: buffer, done: true };
-                        }
+                        yield { content: '', done: true };
                         break;
                     }
 
@@ -182,8 +180,13 @@ export class OllamaProvider implements LLMProvider {
                             if (data.response) {
                                 yield {
                                     content: data.response,
-                                    done: data.done || false
+                                    done: false
                                 };
+                            }
+                            // Check for completion
+                            if (data.done === true) {
+                                yield { content: '', done: true };
+                                return;
                             }
                         } catch (e) {
                             this.logger.error('Failed to parse Ollama streaming response', { error: e });
@@ -199,6 +202,7 @@ export class OllamaProvider implements LLMProvider {
                 model,
                 error: error instanceof Error ? error.message : String(error)
             });
+            yield { content: '', done: true };
             throw error;
         }
     }
