@@ -26,11 +26,11 @@ export class OpenAIProvider implements LLMProvider {
 
   private async loadState(): Promise<void> {
     try {
-      const data = await chrome.storage.local.get(this.STORAGE_KEY);
-      const state = data[this.STORAGE_KEY];
+      const data = await chrome.storage.local.get('openai_provider_config');
+      const state = data['openai_provider_config'];
       if (state) {
         this.apiKey = state.apiKey;
-        this.currentModel = state.currentModel || this.defaultModel;
+        this.currentModel = state.model || this.defaultModel;
         await this.logger.debug('OpenAI provider state loaded', {
           hasApiKey: Boolean(this.apiKey),
           currentModel: this.currentModel
@@ -44,9 +44,9 @@ export class OpenAIProvider implements LLMProvider {
   private async saveState(): Promise<void> {
     try {
       await chrome.storage.local.set({
-        [this.STORAGE_KEY]: {
+        'openai_provider_config': {
           apiKey: this.apiKey,
-          currentModel: this.currentModel
+          model: this.currentModel
         }
       });
       await this.logger.debug('OpenAI provider state saved', {
@@ -109,13 +109,16 @@ export class OpenAIProvider implements LLMProvider {
   }
 
   async complete(prompt: string, options: LLMOptions = {}): Promise<LLMResponse> {
-    await this.loadState();
-    if (!this.apiKey) {
+    // Load configuration
+    const config = await chrome.storage.local.get('openai_provider_config');
+    const providerConfig = config['openai_provider_config'];
+    
+    if (!providerConfig?.apiKey) {
       throw new Error('OpenAI provider not configured. Please provide a valid API key in settings.');
     }
 
     const requestBody = {
-      model: this.currentModel,
+      model: providerConfig.model || this.currentModel,
       messages: [{ role: 'user', content: prompt }],
       temperature: options.temperature ?? 0.7,
       max_tokens: options.maxTokens,
@@ -131,7 +134,7 @@ export class OpenAIProvider implements LLMProvider {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.apiKey}`
+          'Authorization': `Bearer ${providerConfig.apiKey}`
         },
         body: JSON.stringify(requestBody)
       });
@@ -148,13 +151,13 @@ export class OpenAIProvider implements LLMProvider {
       }
 
       await this.logger.llm('OpenAI completion successful', {
-        model: this.currentModel,
+        model: providerConfig.model || this.currentModel,
         usage: data.usage
       });
 
       return {
         content: data.choices[0].message.content,
-        model: this.currentModel,
+        model: providerConfig.model || this.currentModel,
         usage: {
           promptTokens: data.usage.prompt_tokens,
           completionTokens: data.usage.completion_tokens,
@@ -169,106 +172,109 @@ export class OpenAIProvider implements LLMProvider {
   }
 
   async *completeStream(prompt: string, options: LLMOptions = {}): AsyncGenerator<LLMStreamResponse> {
-    await this.loadState();
-    if (!this.apiKey) {
-        throw new Error('OpenAI provider not configured. Please provide a valid API key in settings.');
+    // Load configuration
+    const config = await chrome.storage.local.get('openai_provider_config');
+    const providerConfig = config['openai_provider_config'];
+    
+    if (!providerConfig?.apiKey) {
+      throw new Error('OpenAI provider not configured. Please provide a valid API key in settings.');
     }
 
     const requestBody = {
-        model: this.currentModel,
-        messages: [{ role: 'user', content: prompt }],
-        temperature: options.temperature ?? 0.7,
-        max_tokens: options.maxTokens,
-        top_p: options.topP ?? 1,
-        frequency_penalty: options.frequencyPenalty ?? 0,
-        presence_penalty: options.presencePenalty ?? 0,
-        stop: options.stop,
-        stream: true
+      model: providerConfig.model || this.currentModel,
+      messages: [{ role: 'user', content: prompt }],
+      temperature: options.temperature ?? 0.7,
+      max_tokens: options.maxTokens,
+      top_p: options.topP ?? 1,
+      frequency_penalty: options.frequencyPenalty ?? 0,
+      presence_penalty: options.presencePenalty ?? 0,
+      stop: options.stop,
+      stream: true
     };
 
     try {
-        const response = await fetch(this.API_URL, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${this.apiKey}`
-            },
-            body: JSON.stringify(requestBody)
-        });
+      const response = await fetch(this.API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${providerConfig.apiKey}`
+        },
+        body: JSON.stringify(requestBody)
+      });
 
-        if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.error?.message || 'OpenAI API request failed');
-        }
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error?.message || 'OpenAI API request failed');
+      }
 
-        if (!response.body) {
-            throw new Error('Response body is null');
-        }
+      if (!response.body) {
+        throw new Error('Response body is null');
+      }
 
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
 
-        try {
-            while (true) {
-                const { done, value } = await reader.read();
-                
-                if (done) {
-                    break;
-                }
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          
+          if (done) {
+            break;
+          }
 
-                buffer += decoder.decode(value, { stream: true });
-                const lines = buffer.split('\n');
-                buffer = lines.pop() || '';
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
 
-                for (const line of lines) {
-                    const trimmedLine = line.trim();
-                    if (!trimmedLine || trimmedLine === 'data: [DONE]') {
-                        if (trimmedLine === 'data: [DONE]') {
-                            yield { content: '', done: true };
-                        }
-                        continue;
-                    }
-
-                    if (trimmedLine.startsWith('data: ')) {
-                        try {
-                            const data = JSON.parse(trimmedLine.slice(6));
-                            if (data.choices?.[0]?.delta?.content) {
-                                yield {
-                                    content: data.choices[0].delta.content,
-                                    done: false
-                                };
-                            }
-                        } catch (e) {
-                            this.logger.error('Failed to parse streaming response', { 
-                                error: e,
-                                line: trimmedLine
-                            });
-                        }
-                    }
-                }
+          for (const line of lines) {
+            const trimmedLine = line.trim();
+            if (!trimmedLine || trimmedLine === 'data: [DONE]') {
+              if (trimmedLine === 'data: [DONE]') {
+                yield { content: '', done: true };
+              }
+              continue;
             }
 
-            // Handle any remaining content in the buffer
-            if (buffer) {
-                try {
-                    const data = JSON.parse(buffer);
-                    if (data.choices?.[0]?.delta?.content) {
-                        yield {
-                            content: data.choices[0].delta.content,
-                            done: true
-                        };
-                    }
-                } catch (e) {
-                    // Ignore parse error for final chunk
+            if (trimmedLine.startsWith('data: ')) {
+              try {
+                const data = JSON.parse(trimmedLine.slice(6));
+                if (data.choices?.[0]?.delta?.content) {
+                  yield {
+                    content: data.choices[0].delta.content,
+                    done: false
+                  };
                 }
+              } catch (e) {
+                this.logger.error('Failed to parse streaming response', { 
+                  error: e,
+                  line: trimmedLine
+                });
+              }
             }
-        } finally {
-            reader.releaseLock();
+          }
         }
+
+        // Handle any remaining content in the buffer
+        if (buffer) {
+          try {
+            const data = JSON.parse(buffer);
+            if (data.choices?.[0]?.delta?.content) {
+              yield {
+                content: data.choices[0].delta.content,
+                done: true
+              };
+            }
+          } catch (e) {
+            // Ignore parse error for final chunk
+          }
+        }
+      } finally {
+        reader.releaseLock();
+      }
     } catch (error) {
-        await this.logger.error('OpenAI streaming failed', { error });
-        throw error;
+      await this.logger.error('OpenAI streaming failed', { error });
+      throw error;
     }
   }
 
