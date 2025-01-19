@@ -1,4 +1,4 @@
-import { LLMProvider, LLMResponse, LLMOptions } from './LLMProvider';
+import { LLMProvider, LLMResponse, LLMOptions, LLMStreamResponse } from './LLMProvider';
 import { Logger } from '../utils/Logger';
 
 export class AnthropicProvider implements LLMProvider {
@@ -68,7 +68,8 @@ export class AnthropicProvider implements LLMProvider {
       max_tokens: options.maxTokens ?? 1024,
       temperature: options.temperature ?? 0.7,
       top_p: options.topP ?? 1,
-      stop_sequences: options.stop
+      stop_sequences: options.stop,
+      stream: false
     };
 
     try {
@@ -111,6 +112,93 @@ export class AnthropicProvider implements LLMProvider {
       };
     } catch (error) {
       await this.logger.error('Anthropic completion failed', { error });
+      throw error;
+    }
+  }
+
+  async *completeStream(prompt: string, options: LLMOptions = {}): AsyncGenerator<LLMStreamResponse> {
+    // Load configuration
+    const config = await chrome.storage.local.get('anthropic_provider_config');
+    const providerConfig = config['anthropic_provider_config'];
+    
+    if (!providerConfig?.apiKey) {
+      throw new Error('Anthropic provider not configured. Please provide a valid API key in settings.');
+    }
+
+    const requestBody = {
+      model: this.currentModel,
+      messages: [{ role: 'user', content: prompt }],
+      max_tokens: options.maxTokens ?? 1024,
+      temperature: options.temperature ?? 0.7,
+      top_p: options.topP ?? 1,
+      stop_sequences: options.stop,
+      stream: true
+    };
+
+    try {
+      const response = await fetch(this.API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': providerConfig.apiKey,
+          'anthropic-version': this.API_VERSION,
+          'anthropic-dangerous-direct-browser-access': 'true'
+        },
+        body: JSON.stringify(requestBody)
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error?.message || 'Anthropic API request failed');
+      }
+
+      if (!response.body) {
+        throw new Error('Response body is null');
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          
+          if (done) {
+            if (buffer) {
+              yield { content: buffer, done: true };
+            }
+            break;
+          }
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            const trimmedLine = line.trim();
+            if (!trimmedLine || trimmedLine === 'event: done') continue;
+
+            if (trimmedLine.startsWith('data: ')) {
+              try {
+                const data = JSON.parse(trimmedLine.slice(6));
+                if (data.type === 'content_block_delta' && data.delta?.text) {
+                  yield {
+                    content: data.delta.text,
+                    done: false
+                  };
+                }
+              } catch (e) {
+                this.logger.error('Failed to parse streaming response', { error: e });
+              }
+            }
+          }
+        }
+      } finally {
+        reader.releaseLock();
+      }
+    } catch (error) {
+      await this.logger.error('Anthropic streaming failed', { error });
       throw error;
     }
   }

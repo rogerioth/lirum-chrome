@@ -1,4 +1,4 @@
-import { LLMProvider, LLMResponse, LLMOptions } from './LLMProvider';
+import { LLMProvider, LLMResponse, LLMOptions, LLMStreamResponse } from './LLMProvider';
 import { Logger } from '../utils/Logger';
 
 export class OpenAIProvider implements LLMProvider {
@@ -122,7 +122,8 @@ export class OpenAIProvider implements LLMProvider {
       top_p: options.topP ?? 1,
       frequency_penalty: options.frequencyPenalty ?? 0,
       presence_penalty: options.presencePenalty ?? 0,
-      stop: options.stop
+      stop: options.stop,
+      stream: false
     };
 
     try {
@@ -164,6 +165,110 @@ export class OpenAIProvider implements LLMProvider {
     } catch (error) {
       await this.logger.error('OpenAI completion failed', { error });
       throw error;
+    }
+  }
+
+  async *completeStream(prompt: string, options: LLMOptions = {}): AsyncGenerator<LLMStreamResponse> {
+    await this.loadState();
+    if (!this.apiKey) {
+        throw new Error('OpenAI provider not configured. Please provide a valid API key in settings.');
+    }
+
+    const requestBody = {
+        model: this.currentModel,
+        messages: [{ role: 'user', content: prompt }],
+        temperature: options.temperature ?? 0.7,
+        max_tokens: options.maxTokens,
+        top_p: options.topP ?? 1,
+        frequency_penalty: options.frequencyPenalty ?? 0,
+        presence_penalty: options.presencePenalty ?? 0,
+        stop: options.stop,
+        stream: true
+    };
+
+    try {
+        const response = await fetch(this.API_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${this.apiKey}`
+            },
+            body: JSON.stringify(requestBody)
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error?.message || 'OpenAI API request failed');
+        }
+
+        if (!response.body) {
+            throw new Error('Response body is null');
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        try {
+            while (true) {
+                const { done, value } = await reader.read();
+                
+                if (done) {
+                    break;
+                }
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+
+                for (const line of lines) {
+                    const trimmedLine = line.trim();
+                    if (!trimmedLine || trimmedLine === 'data: [DONE]') {
+                        if (trimmedLine === 'data: [DONE]') {
+                            yield { content: '', done: true };
+                        }
+                        continue;
+                    }
+
+                    if (trimmedLine.startsWith('data: ')) {
+                        try {
+                            const data = JSON.parse(trimmedLine.slice(6));
+                            if (data.choices?.[0]?.delta?.content) {
+                                yield {
+                                    content: data.choices[0].delta.content,
+                                    done: false
+                                };
+                            }
+                        } catch (e) {
+                            this.logger.error('Failed to parse streaming response', { 
+                                error: e,
+                                line: trimmedLine
+                            });
+                        }
+                    }
+                }
+            }
+
+            // Handle any remaining content in the buffer
+            if (buffer) {
+                try {
+                    const data = JSON.parse(buffer);
+                    if (data.choices?.[0]?.delta?.content) {
+                        yield {
+                            content: data.choices[0].delta.content,
+                            done: true
+                        };
+                    }
+                } catch (e) {
+                    // Ignore parse error for final chunk
+                }
+            }
+        } finally {
+            reader.releaseLock();
+        }
+    } catch (error) {
+        await this.logger.error('OpenAI streaming failed', { error });
+        throw error;
     }
   }
 

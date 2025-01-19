@@ -11,6 +11,11 @@ export interface LLMResponse {
   raw: any;
 }
 
+export interface LLMStreamResponse {
+  content: string;
+  done: boolean;
+}
+
 export interface LLMOptions {
   maxTokens?: number;
   temperature?: number;
@@ -18,6 +23,8 @@ export interface LLMOptions {
   frequencyPenalty?: number;
   presencePenalty?: number;
   stop?: string[];
+  stream?: boolean;
+  onToken?: (token: string) => void;
 }
 
 export interface LLMProvider {
@@ -28,6 +35,7 @@ export interface LLMProvider {
 
   test(apiKey?: string, endpoint?: string): Promise<void>;
   complete(prompt: string, options?: LLMOptions): Promise<LLMResponse>;
+  completeStream(prompt: string, options?: LLMOptions): AsyncGenerator<LLMStreamResponse>;
   getCurrentModel(): string;
   setModel(model: string): void;
   validateApiKey?(apiKey: string): boolean;

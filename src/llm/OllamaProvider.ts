@@ -1,4 +1,4 @@
-import { LLMProvider, LLMResponse, LLMOptions } from './LLMProvider';
+import { LLMProvider, LLMResponse, LLMOptions, LLMStreamResponse } from './LLMProvider';
 import { Logger } from '../utils/Logger';
 
 export class OllamaProvider implements LLMProvider {
@@ -114,6 +114,87 @@ export class OllamaProvider implements LLMProvider {
             };
         } catch (error) {
             await this.logger.error('Ollama completion failed', { 
+                endpoint: this.endpoint,
+                model,
+                error: error instanceof Error ? error.message : String(error)
+            });
+            throw error;
+        }
+    }
+
+    async *completeStream(prompt: string, options: LLMOptions = {}): AsyncGenerator<LLMStreamResponse> {
+        if (!this.endpoint) {
+            throw new Error('Endpoint not configured');
+        }
+
+        const model = this.currentModel;
+        await this.logger.debug('Ollama streaming request config', { 
+            endpoint: this.endpoint,
+            model,
+            options
+        });
+
+        try {
+            const response = await this.fetchWithExtension(`${this.endpoint}/api/generate`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    model,
+                    prompt,
+                    stream: true,
+                    temperature: options.temperature || 0.7,
+                    top_p: 1,
+                    max_tokens: options.maxTokens || 1000
+                })
+            });
+
+            if (!response.body) {
+                throw new Error('Response body is null');
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            try {
+                while (true) {
+                    const { done, value } = await reader.read();
+                    
+                    if (done) {
+                        if (buffer) {
+                            yield { content: buffer, done: true };
+                        }
+                        break;
+                    }
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() || '';
+
+                    for (const line of lines) {
+                        const trimmedLine = line.trim();
+                        if (!trimmedLine) continue;
+
+                        try {
+                            const data = JSON.parse(trimmedLine);
+                            if (data.response) {
+                                yield {
+                                    content: data.response,
+                                    done: data.done || false
+                                };
+                            }
+                        } catch (e) {
+                            this.logger.error('Failed to parse Ollama streaming response', { error: e });
+                        }
+                    }
+                }
+            } finally {
+                reader.releaseLock();
+            }
+        } catch (error) {
+            await this.logger.error('Ollama streaming failed', { 
                 endpoint: this.endpoint,
                 model,
                 error: error instanceof Error ? error.message : String(error)

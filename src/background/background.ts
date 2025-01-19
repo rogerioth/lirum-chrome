@@ -60,7 +60,8 @@ async function processContent(
     provider: ProviderType,
     command: string,
     content: string,
-    title: string
+    title: string,
+    port?: chrome.runtime.Port
 ): Promise<{ content: string }> {
     const requestId = Math.random().toString(36).substring(7);
     
@@ -70,7 +71,8 @@ async function processContent(
         command,
         contentLength: content.length,
         titleLength: title.length,
-        contentPreview: content.slice(0, 100)
+        contentPreview: content.slice(0, 100),
+        isStreaming: Boolean(port)
     });
 
     // Get provider instance and config
@@ -166,24 +168,52 @@ async function processContent(
             model: llmProvider.getCurrentModel(),
             options: {
                 temperature: 0.7,
-                maxTokens: 1000
+                maxTokens: 1000,
+                stream: Boolean(port)
             }
         });
 
-        const response = await llmProvider.complete(prompt, {
-            temperature: 0.7,
-            maxTokens: 1000
-        });
+        if (port) {
+            // Handle streaming response
+            try {
+                let fullContent = '';
+                for await (const chunk of llmProvider.completeStream(prompt, {
+                    temperature: 0.7,
+                    maxTokens: 1000,
+                    stream: true
+                })) {
+                    fullContent += chunk.content;
+                    port.postMessage({ type: 'STREAM_CHUNK', content: chunk.content, done: chunk.done });
+                }
+                
+                await logger.info('Provider streaming response complete', {
+                    requestId,
+                    provider,
+                    responseLength: fullContent.length
+                });
 
-        await logger.info('Provider response received', {
-            requestId,
-            provider,
-            responseLength: response.content.length,
-            model: response.model,
-            usage: response.usage
-        });
+                return { content: fullContent };
+            } catch (error) {
+                port.postMessage({ type: 'STREAM_ERROR', error: error instanceof Error ? error.message : String(error) });
+                throw error;
+            }
+        } else {
+            // Handle non-streaming response
+            const response = await llmProvider.complete(prompt, {
+                temperature: 0.7,
+                maxTokens: 1000
+            });
 
-        return { content: response.content };
+            await logger.info('Provider response received', {
+                requestId,
+                provider,
+                responseLength: response.content.length,
+                model: response.model,
+                usage: response.usage
+            });
+
+            return { content: response.content };
+        }
     } catch (error) {
         await logger.error('Provider request failed', {
             requestId,
@@ -269,8 +299,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             provider: request.provider,
             command: request.command,
             contentLength: request.content.length,
-            title: request.title
+            title: request.title,
+            stream: request.stream
         });
+
+        if (request.stream) {
+            // For streaming, we'll use a long-lived connection
+            sendResponse({ status: 'STREAMING' });
+            return false;
+        }
 
         processContent(request.provider, request.command, request.content, request.title)
             .then(response => {
@@ -291,4 +328,35 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
 
     return false;
+});
+
+// Handle streaming connections
+chrome.runtime.onConnect.addListener((port) => {
+    if (port.name === 'llm_stream') {
+        port.onMessage.addListener((request) => {
+            if (request.type === 'PROCESS_CONTENT') {
+                if (!request.provider || !request.command || !request.content) {
+                    port.postMessage({ 
+                        type: 'STREAM_ERROR', 
+                        error: 'Missing required fields: provider, command, or content' 
+                    });
+                    return;
+                }
+
+                processContent(
+                    request.provider, 
+                    request.command, 
+                    request.content, 
+                    request.title, 
+                    port
+                ).catch(error => {
+                    const errorMessage = error instanceof Error ? error.message : String(error);
+                    port.postMessage({ 
+                        type: 'STREAM_ERROR', 
+                        error: `Failed to process content: ${errorMessage}` 
+                    });
+                });
+            }
+        });
+    }
 });

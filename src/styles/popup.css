@@ -34,8 +34,10 @@ body {
 /* Container */
 .popup-container {
     width: 100%;
-    min-width: 600px;
-    padding: var(--spacing-unit);
+    max-width: 600px;
+    margin: 0 auto;
+    padding: 16px;
+    box-sizing: border-box;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
     color: var(--text-primary);
     overflow: hidden;
@@ -156,6 +158,136 @@ input:focus {
 
 .response {
     margin-top: 16px;
+    padding: 16px;
+    background: #f8f9fa;
+    border-radius: 8px;
+    border: 1px solid #e9ecef;
+    min-height: 100px;
+    display: flex;
+    flex-direction: column;
+    opacity: 1;
+    visibility: visible;
+    transition: opacity 0.2s ease;
+}
+
+.markdown-content {
+    flex-grow: 1;
+    max-height: 400px;
+    overflow-y: auto;
+    padding-right: 8px;
+    scroll-behavior: smooth;
+    font-size: 14px;
+    line-height: 1.6;
+    position: relative;
+    opacity: 1;
+    visibility: visible;
+    min-height: 60px;
+    display: block;
+    white-space: pre-wrap;
+}
+
+.markdown-content p {
+    margin: 0.5em 0;
+    opacity: 1;
+    visibility: visible;
+}
+
+/* Remove any fade effects */
+.markdown-content::after,
+.markdown-content::before {
+    display: none !important;
+}
+
+/* Ensure streaming content is visible */
+.markdown-content.streaming {
+    opacity: 1 !important;
+    visibility: visible !important;
+    display: block !important;
+}
+
+/* Loading bar styling */
+.loading-bar {
+    height: 2px;
+    background: linear-gradient(90deg, 
+        var(--purple-600) 0%, 
+        var(--purple-200) 50%, 
+        var(--purple-600) 100%
+    );
+    background-size: 200% 100%;
+    animation: loading 2s infinite linear;
+    margin: 4px 0 12px;
+    opacity: 1;
+    visibility: visible;
+    display: block;
+}
+
+/* Ensure the response header is visible */
+.response-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+    opacity: 1;
+    visibility: visible;
+}
+
+/* Make streaming indicator more visible */
+.streaming-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    opacity: 1;
+    visibility: visible;
+}
+
+/* Update loading dots animation */
+.loading-dots {
+    display: inline-flex;
+    align-items: center;
+    height: 4px;
+    opacity: 1;
+}
+
+.loading-dots::after {
+    content: '...';
+    width: 16px;
+    animation: dots 1.5s steps(4, end) infinite;
+    opacity: 1;
+}
+
+@keyframes loading {
+    0% {
+        background-position: 200% 0;
+    }
+    100% {
+        background-position: -200% 0;
+    }
+}
+
+@keyframes blink {
+    0%, 100% { opacity: 0; }
+    50% { opacity: 1; }
+}
+
+/* Improve scrollbar styling */
+.markdown-content::-webkit-scrollbar {
+    width: 8px;
+}
+
+.markdown-content::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 4px;
+}
+
+.markdown-content::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 4px;
+}
+
+.markdown-content::-webkit-scrollbar-thumb:hover {
+    background: #555;
 }
 
 .response h2 {
@@ -370,4 +502,116 @@ input:focus {
     font-size: 1.125rem;
     font-weight: 600;
     color: var(--text-primary);
+}
+
+/* Response Header */
+.response-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+}
+
+.streaming-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+/* Loading dots animation */
+.loading-dots {
+    display: inline-flex;
+    align-items: center;
+    height: 4px;
+}
+
+.loading-dots::after {
+    content: '...';
+    width: 16px;
+    animation: dots 1.5s steps(4, end) infinite;
+}
+
+@keyframes dots {
+    0%, 20% { content: '.'; }
+    40% { content: '..'; }
+    60% { content: '...'; }
+    80%, 100% { content: ''; }
+}
+
+/* Markdown content streaming state */
+.markdown-content.streaming {
+    position: relative;
+    min-height: 60px;
+}
+
+.markdown-content.streaming::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 40px;
+    background: linear-gradient(transparent, #f8f9fa);
+    pointer-events: none;
+    opacity: 1;
+}
+
+/* Loading bar in response */
+.response .loading-bar {
+    margin: 4px 0 12px;
+    height: 2px;
+    background: linear-gradient(90deg, 
+        var(--purple-600) 0%, 
+        var(--purple-200) 50%, 
+        var(--purple-600) 100%
+    );
+    background-size: 200% 100%;
+    animation: loading 2s infinite linear;
+    border-radius: 1px;
+}
+
+/* Improve the blinking cursor for streaming content */
+.markdown-content.streaming p:last-child::after {
+    content: '▋';
+    display: inline-block;
+    animation: blink 1s step-end infinite;
+    opacity: 0.5;
+    margin-left: 2px;
+    color: var(--purple-600);
+}
+
+/* Update loading animation */
+@keyframes loading {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+@keyframes blink {
+    0%, 100% { opacity: 0; }
+    50% { opacity: 1; }
+}
+
+/* Ensure the response area is always visible during streaming */
+.response {
+    margin-top: 16px;
+    padding: 16px;
+    background: #f8f9fa;
+    border-radius: 8px;
+    border: 1px solid #e9ecef;
+    min-height: 100px;
+    display: flex;
+    flex-direction: column;
+}
+
+.markdown-content {
+    flex-grow: 1;
+    max-height: 400px;
+    overflow-y: auto;
+    padding-right: 8px;
+    scroll-behavior: smooth;
+    font-size: 14px;
+    line-height: 1.6;
+    position: relative;
 }

@@ -1,4 +1,4 @@
-import { LLMProvider, LLMResponse, LLMOptions } from './LLMProvider';
+import { LLMProvider, LLMResponse, LLMOptions, LLMStreamResponse } from './LLMProvider';
 import { Logger } from '../utils/Logger';
 
 export class LMStudioProvider implements LLMProvider {
@@ -86,19 +86,15 @@ export class LMStudioProvider implements LLMProvider {
       throw new Error('Endpoint not configured');
     }
 
-    const model = this.currentModel;
-    await this.logger.debug('LM Studio request config', { 
-      endpoint: this.endpoint,
-      model,
-      options
-    });
-
     const requestBody = {
-      model,
+      model: this.currentModel,
       messages: [{ role: 'user', content: prompt }],
-      temperature: options.temperature || 0.7,
-      max_tokens: options.maxTokens || 1000,
-      top_p: 1,
+      temperature: options.temperature ?? 0.7,
+      max_tokens: options.maxTokens,
+      top_p: options.topP ?? 1,
+      frequency_penalty: options.frequencyPenalty ?? 0,
+      presence_penalty: options.presencePenalty ?? 0,
+      stop: options.stop,
       stream: false
     };
 
@@ -111,39 +107,20 @@ export class LMStudioProvider implements LLMProvider {
         body: JSON.stringify(requestBody)
       });
 
-      let data;
-      try {
-        data = await response.json();
-      } catch (e) {
-        // Log the raw response if JSON parsing fails
-        const rawText = await response.text();
-        await this.logger.error('Failed to parse LM Studio response', {
-          rawResponse: rawText,
-          error: e instanceof Error ? e.message : String(e)
-        });
-        throw new Error('Invalid JSON response from LM Studio API');
-      }
-
-      // Log the full response for debugging
-      const headerObj: Record<string, string> = {};
-      response.headers.forEach((value, key) => {
-        headerObj[key] = value;
-      });
-
-      await this.logger.debug('LM Studio raw response', { 
-        data,
-        statusCode: response.status,
-        headers: headerObj
-      });
-
+      const data = await response.json();
+      
       if (!data.choices?.[0]?.message?.content) {
-        await this.logger.error('Invalid LM Studio response format', { response: data });
         throw new Error('Invalid response format from LM Studio API');
       }
 
+      await this.logger.llm('LM Studio completion successful', {
+        model: this.currentModel,
+        usage: data.usage
+      });
+
       return {
         content: data.choices[0].message.content,
-        model,
+        model: this.currentModel,
         usage: {
           promptTokens: data.usage?.prompt_tokens ?? 0,
           completionTokens: data.usage?.completion_tokens ?? 0,
@@ -152,11 +129,89 @@ export class LMStudioProvider implements LLMProvider {
         raw: data
       };
     } catch (error) {
-      await this.logger.error('LM Studio completion failed', { 
-        endpoint: this.endpoint,
-        model,
-        error: error instanceof Error ? error.message : String(error)
+      await this.logger.error('LM Studio completion failed', { error });
+      throw error;
+    }
+  }
+
+  async *completeStream(prompt: string, options: LLMOptions = {}): AsyncGenerator<LLMStreamResponse> {
+    if (!this.endpoint) {
+      throw new Error('Endpoint not configured');
+    }
+
+    const requestBody = {
+      model: this.currentModel,
+      messages: [{ role: 'user', content: prompt }],
+      temperature: options.temperature ?? 0.7,
+      max_tokens: options.maxTokens,
+      top_p: options.topP ?? 1,
+      frequency_penalty: options.frequencyPenalty ?? 0,
+      presence_penalty: options.presencePenalty ?? 0,
+      stop: options.stop,
+      stream: true
+    };
+
+    try {
+      const response = await this.fetchWithExtension(this.getEndpointUrl('chat/completions'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(requestBody)
       });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error?.message || 'LM Studio API request failed');
+      }
+
+      if (!response.body) {
+        throw new Error('Response body is null');
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          
+          if (done) {
+            if (buffer) {
+              yield { content: buffer, done: true };
+            }
+            break;
+          }
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            const trimmedLine = line.trim();
+            if (!trimmedLine || trimmedLine === 'data: [DONE]') continue;
+
+            if (trimmedLine.startsWith('data: ')) {
+              try {
+                const data = JSON.parse(trimmedLine.slice(6));
+                if (data.choices?.[0]?.delta?.content) {
+                  yield {
+                    content: data.choices[0].delta.content,
+                    done: false
+                  };
+                }
+              } catch (e) {
+                this.logger.error('Failed to parse streaming response', { error: e });
+              }
+            }
+          }
+        }
+      } finally {
+        reader.releaseLock();
+      }
+    } catch (error) {
+      await this.logger.error('LM Studio streaming failed', { error });
       throw error;
     }
   }
