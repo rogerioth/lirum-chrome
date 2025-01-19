@@ -31,35 +31,13 @@
  * @module options
  */
 
-import { LLMProvider as Provider } from '../llm/LLMProvider';
+import { LLMProvider } from '../llm/LLMProvider';
 import { LLMProviderFactory, ProviderType } from '../llm/LLMProviderFactory';
 import { Logger, LogLevel } from '../utils/Logger';
+import { StorageManager, Provider, Command, DEFAULT_COMMANDS } from '../utils/StorageManager';
 import '../styles/options.css';
 
-interface LLMProvider {
-    type: string;
-    name: string;
-    endpoint?: string;
-    apiKey?: string;
-    model: string;
-    guid: string;
-}
-
 const PROVIDER_TYPES: ProviderType[] = LLMProviderFactory.getProviderTypes();
-
-interface Command {
-    name: string;
-    icon: string;
-    prompt: string;
-}
-
-const DEFAULT_COMMANDS: Command[] = [
-    { name: 'Summarize', icon: 'fa-solid fa-compress', prompt: 'Please provide a concise summary of the following content:' },
-    { name: 'Paraphrase', icon: 'fa-solid fa-pen', prompt: 'Please rewrite the following content in different words while maintaining its meaning:' },
-    { name: 'Bullet Points', icon: 'fa-solid fa-list', prompt: 'Please convert the following content into clear, organized bullet points:' },
-    { name: 'Translate', icon: 'fa-solid fa-language', prompt: 'Please translate the following content to English (or specify target language):' },
-    { name: 'Analyze Tone', icon: 'fa-solid fa-face-smile', prompt: 'Please analyze the tone and emotional content of the following text:' }
-];
 
 // Add navigation handling
 function initializeNavigation(): void {
@@ -90,19 +68,22 @@ function initializeNavigation(): void {
 }
 
 class OptionsManager {
-    private providers: LLMProvider[] = [];
+    private providers: Provider[] = [];
     private commands: Command[] = [];
     private selectedProviderIndex: number = -1;
     private selectedCommandIndex: number = -1;
     private readonly logger: Logger;
+    private readonly storageManager: StorageManager;
 
     constructor() {
         this.logger = Logger.getInstance();
+        this.storageManager = StorageManager.getInstance();
         this.initializeEventListeners();
         this.loadSettings();
+        this.displayStorageData();  // Initialize storage display
     }
 
-    private getProviderInstance(type: ProviderType): Provider {
+    private getProviderInstance(type: ProviderType): LLMProvider {
         return LLMProviderFactory.getProvider(type);
     }
 
@@ -158,18 +139,17 @@ class OptionsManager {
             }
 
             // Save provider configuration after successful test
-            const config = {
+            const config: Provider = {
                 type,
                 name: provider.name,
                 endpoint: endpointInput.value,
                 apiKey: !isLocal ? apiKeyInput.value : undefined,
-                model: modelSelect.value || provider.defaultModel
+                model: modelSelect.value || provider.defaultModel,
+                providerId: crypto.randomUUID()
             };
 
             // Save to chrome.storage
-            await chrome.storage.local.set({
-                [`${type}_provider_config`]: config
-            });
+            await this.storageManager.saveProvider(config);
 
             await this.logger.info('Provider configuration saved', {
                 type,
@@ -213,23 +193,17 @@ class OptionsManager {
         this.initializeModelDropdown();
 
         // Provider management
-        document.getElementById('add-provider')?.addEventListener('click', async () => {
-            await this.logger.info('Opening add provider modal');
+        document.getElementById('add-provider')?.addEventListener('click', () => {
+            this.selectedProviderIndex = -1;  // Reset selection when adding new
             this.showProviderModal();
         });
 
-        document.getElementById('edit-provider')?.addEventListener('click', async () => {
-            if (this.selectedProviderIndex !== -1) {
-                await this.logger.info('Opening edit provider modal', { providerIndex: this.selectedProviderIndex });
-                this.showProviderModal(this.providers[this.selectedProviderIndex]);
-            }
+        document.getElementById('edit-provider')?.addEventListener('click', () => {
+            this.editSelectedProvider();
         });
 
-        document.getElementById('remove-provider')?.addEventListener('click', async () => {
-            if (this.selectedProviderIndex !== -1) {
-                await this.logger.info('Removing provider', { providerIndex: this.selectedProviderIndex });
-                this.removeSelectedProvider();
-            }
+        document.getElementById('remove-provider')?.addEventListener('click', () => {
+            this.removeSelectedProvider();
         });
 
         // Command management
@@ -263,6 +237,10 @@ class OptionsManager {
             this.hideProviderModal();
         });
 
+        document.querySelector('#provider-modal .close-button')?.addEventListener('click', () => {
+            this.hideProviderModal();
+        });
+
         document.getElementById('test-provider')?.addEventListener('click', () => {
             this.testProvider();
         });
@@ -273,14 +251,6 @@ class OptionsManager {
 
         document.getElementById('save-command')?.addEventListener('click', () => {
             this.saveCommand();
-        });
-
-        // Close buttons for all modals
-        document.querySelectorAll('.close-button').forEach(button => {
-            button.addEventListener('click', () => {
-                this.hideProviderModal();
-                this.hideCommandModal();
-            });
         });
 
         // Logs management
@@ -348,6 +318,18 @@ class OptionsManager {
                 this.updateProviderButtons();
             });
         }
+
+        // Add factory reset button handler
+        document.getElementById('factory-reset')?.addEventListener('click', async () => {
+            if (confirm('Are you sure you want to reset all settings to factory defaults? This will remove all providers and reset commands to default values.')) {
+                await this.factoryReset();
+            }
+        });
+
+        // Storage management
+        document.getElementById('refresh-storage')?.addEventListener('click', async () => {
+            await this.displayStorageData();
+        });
     }
 
     private initializeModelDropdown(): void {
@@ -430,138 +412,35 @@ class OptionsManager {
 
     private async loadSettings(): Promise<void> {
         try {
-            // Load commands
-            const commandSettings = await chrome.storage.sync.get(['commands']);
-            if (commandSettings.commands) {
-                this.commands = commandSettings.commands;
-            } else {
-                this.commands = [...DEFAULT_COMMANDS];
-            }
-            await this.logger.info('Commands loaded', { count: this.commands.length });
-
-            // Initialize empty providers array
-            this.providers = [];
-
-            // Load providers from all storage locations
-            const [legacySyncSettings, legacyLocalSettings, providerConfigs] = await Promise.all([
-                chrome.storage.sync.get(['providers']),
-                chrome.storage.local.get(['providers']),
-                chrome.storage.local.get(null) // Get all storage to find provider configs
+            const [providers, commands] = await Promise.all([
+                this.storageManager.getProviders(),
+                this.storageManager.getCommands()
             ]);
 
-            // Start with sync storage providers
-            if (legacySyncSettings.providers) {
-                this.providers = [...legacySyncSettings.providers].map(p => ({
-                    ...p,
-                    guid: p.guid || crypto.randomUUID() // Ensure all providers have GUIDs
-                }));
-                await this.logger.info('Legacy sync providers loaded', { count: this.providers.length });
-            }
+            this.providers = providers;
+            this.commands = commands;
 
-            // Merge with local storage providers
-            if (legacyLocalSettings.providers) {
-                // Update existing providers or add new ones
-                legacyLocalSettings.providers.forEach(localProvider => {
-                    const existingIndex = this.providers.findIndex(p => p.guid === localProvider.guid);
-                    if (existingIndex !== -1) {
-                        this.providers[existingIndex] = {
-                            ...this.providers[existingIndex],
-                            ...localProvider
-                        };
-                    } else {
-                        this.providers.push({
-                            ...localProvider,
-                            guid: localProvider.guid || crypto.randomUUID()
-                        });
-                    }
-                });
-                await this.logger.info('Legacy local providers merged', { count: this.providers.length });
-            }
-
-            // Finally, merge with individual provider configs
-            for (const key of Object.keys(providerConfigs)) {
-                if (key.endsWith('_provider_config')) {
-                    const config = providerConfigs[key];
-                    if (config && config.guid) {
-                        const existingIndex = this.providers.findIndex(p => p.guid === config.guid);
-                        const type = key.replace('_provider_config', '') as ProviderType;
-                        
-                        if (existingIndex !== -1) {
-                            // Update existing provider with new config
-                            this.providers[existingIndex] = {
-                                ...this.providers[existingIndex],
-                                ...config,
-                                type, // Ensure type is preserved
-                                name: config.name || this.providers[existingIndex].name || LLMProviderFactory.getProviderName(type)
-                            };
-                        } else {
-                            // Add new provider
-                            this.providers.push({
-                                type,
-                                name: config.name || LLMProviderFactory.getProviderName(type),
-                                guid: config.guid,
-                                ...config
-                            });
-                        }
-                    }
-                }
-            }
-
-            // Log the final state
-            const redactedProviders = this.providers.map(p => ({
-                guid: p.guid,
-                type: p.type,
-                name: p.name,
-                hasApiKey: Boolean(p.apiKey),
-                apiKey: p.apiKey ? `${p.apiKey.slice(0,2)}....${p.apiKey.slice(-2)}` : undefined,
-                endpoint: p.endpoint,
-                model: p.model
-            }));
-            
-            await this.logger.info('Options page providers loaded', { 
-                count: this.providers.length,
-                providers: redactedProviders
-            });
-            
-            // Update UI
             this.renderProviders();
             this.updateCommandsList();
         } catch (error) {
+            this.showMessage('Failed to load settings', true);
             await this.logger.error('Failed to load settings', { error });
         }
     }
 
     private async saveSettings(): Promise<void> {
         try {
-            // Save providers array to both sync and local storage
             await Promise.all([
-                chrome.storage.sync.set({
-                    providers: this.providers,
-                    commands: this.commands
-                }),
-                chrome.storage.local.set({
-                    providers: this.providers
-                })
+                Promise.all(this.providers.map(provider => 
+                    this.storageManager.saveProvider({
+                        ...provider,
+                        providerId: provider.providerId || crypto.randomUUID() // Ensure providerId exists
+                    })
+                )),
+                this.storageManager.saveCommands(this.commands)
             ]);
-
-            // Save individual provider configs using GUID as part of the key
-            const providerConfigs = this.providers.reduce((configs, provider) => ({
-                ...configs,
-                [`${provider.guid}_${provider.type}_provider_config`]: {
-                    guid: provider.guid,
-                    apiKey: provider.apiKey,
-                    endpoint: provider.endpoint,
-                    model: provider.model,
-                    name: provider.name
-                }
-            }), {});
-
-            await chrome.storage.local.set(providerConfigs);
-
-            this.showMessage('Settings saved successfully!');
         } catch (error) {
-            this.showMessage('Error saving settings!', true);
-            this.logger.error('Error saving settings:', { error });
+            throw new Error('Failed to save settings: ' + (error instanceof Error ? error.message : 'Unknown error'));
         }
     }
 
@@ -909,7 +788,7 @@ class OptionsManager {
         }
 
         // Create or update provider
-        const provider: LLMProvider = this.selectedProviderIndex !== -1 
+        const provider: Provider = this.selectedProviderIndex !== -1 
             ? {
                 ...this.providers[this.selectedProviderIndex],
                 type,
@@ -924,7 +803,7 @@ class OptionsManager {
                 apiKey,
                 endpoint,
                 model,
-                guid: crypto.randomUUID() // Generate new GUID for new providers
+                providerId: crypto.randomUUID()
             };
 
         // Update providers array
@@ -938,7 +817,7 @@ class OptionsManager {
             await this.saveSettings();
 
             await this.logger.info('Provider configuration saved', {
-                guid: provider.guid,
+                guid: provider.providerId,
                 type,
                 name,
                 hasApiKey: Boolean(apiKey),
@@ -963,7 +842,7 @@ class OptionsManager {
         providersList.innerHTML = '';
         this.providers.forEach((provider, index) => {
             const option = document.createElement('option');
-            option.value = index.toString();
+            option.value = provider.providerId;
             option.textContent = `  ${provider.name} (${provider.type})`;
             providersList.appendChild(option);
         });
@@ -982,9 +861,10 @@ class OptionsManager {
         }
     }
 
-    private showProviderModal(provider?: LLMProvider): void {
+    private showProviderModal(provider?: Provider): void {
         const modal = document.getElementById('provider-modal') as HTMLElement;
-        const title = modal.querySelector('h2') as HTMLElement;
+        const modalTitle = modal.querySelector('.modal-header-content h2') as HTMLElement;
+        const saveButton = modal.querySelector('#modal-save span') as HTMLElement;
         const typeSelect = document.getElementById('provider-type') as HTMLSelectElement;
         const nameInput = document.getElementById('provider-name') as HTMLInputElement;
         const apiKeyGroup = document.getElementById('api-key-group');
@@ -993,8 +873,10 @@ class OptionsManager {
         const endpointInput = document.getElementById('provider-endpoint') as HTMLInputElement;
         const modelInput = document.getElementById('provider-model') as HTMLInputElement;
 
-        // Reset form
-        title.textContent = provider ? 'Edit Provider' : 'Add Provider';
+        // Reset form and update UI for add/edit mode
+        const isEditMode = Boolean(provider);
+        modalTitle.textContent = isEditMode ? 'Edit Provider' : 'Add Provider';
+        saveButton.textContent = isEditMode ? 'Update' : 'Save';
         
         // Populate provider types if empty
         if (typeSelect.children.length === 0) {
@@ -1034,6 +916,7 @@ class OptionsManager {
         // Update fields visibility
         this.updateProviderFields();
 
+        // Show modal
         modal.style.display = 'flex';
     }
 
@@ -1055,20 +938,29 @@ class OptionsManager {
         const select = document.getElementById('providers-list') as HTMLSelectElement;
         if (!select || select.selectedIndex === -1) return;
 
-        this.selectedProviderIndex = parseInt(select.value);
-        const provider = this.providers[this.selectedProviderIndex];
+        const selectedProviderId = select.value;
+        const providerIndex = this.providers.findIndex(p => p.providerId === selectedProviderId);
+        if (providerIndex === -1) return;
+
+        this.selectedProviderIndex = providerIndex;
+        const provider = this.providers[providerIndex];
         this.showProviderModal(provider);
     }
 
     private async removeSelectedProvider(): Promise<void> {
-        if (this.selectedProviderIndex === -1) return;
+        const select = document.getElementById('providers-list') as HTMLSelectElement;
+        if (!select || select.selectedIndex === -1) return;
+
+        const selectedProviderId = select.value;
+        const providerIndex = this.providers.findIndex(p => p.providerId === selectedProviderId);
+        if (providerIndex === -1) return;
 
         try {
-            const provider = this.providers[this.selectedProviderIndex];
+            const provider = this.providers[providerIndex];
             const type = provider.type;
 
             // Remove from providers array
-            this.providers.splice(this.selectedProviderIndex, 1);
+            this.providers.splice(providerIndex, 1);
             this.selectedProviderIndex = -1;
 
             // Remove from both storage formats
@@ -1077,7 +969,7 @@ class OptionsManager {
                 chrome.storage.sync.set({ providers: this.providers }),
                 
                 // Remove from provider-specific format
-                chrome.storage.local.remove(`${provider.guid}_${provider.type}_provider_config`)
+                chrome.storage.local.remove(`${provider.providerId}_${provider.type}_provider_config`)
             ]);
 
             await this.logger.info('Provider removed', { type });
@@ -1113,6 +1005,51 @@ class OptionsManager {
                 endpointInput.placeholder = `Enter endpoint URL (default: ${defaultEndpoint})`;
                 endpointInput.value = defaultEndpoint;
             }
+        }
+    }
+
+    private async factoryReset(): Promise<void> {
+        try {
+            await this.storageManager.factoryReset();
+            
+            // Reset local state
+            this.providers = [];
+            this.commands = [...DEFAULT_COMMANDS];
+            this.selectedProviderIndex = -1;
+            this.selectedCommandIndex = -1;
+
+            // Update UI
+            this.renderProviders();
+            this.updateCommandsList();
+            this.showMessage('Settings have been reset to factory defaults');
+            
+            await this.logger.info('Factory reset completed');
+        } catch (error) {
+            const message = 'Failed to reset settings: ' + (error instanceof Error ? error.message : 'Unknown error');
+            this.showMessage(message, true);
+            await this.logger.error('Factory reset failed', { error });
+        }
+    }
+
+    private async displayStorageData(): Promise<void> {
+        try {
+            const [syncData, localData] = await Promise.all([
+                chrome.storage.sync.get(null),
+                chrome.storage.local.get(null)
+            ]);
+
+            const storageData = {
+                sync: syncData,
+                local: localData
+            };
+
+            const storageOutput = document.getElementById('storage-output');
+            if (storageOutput) {
+                storageOutput.textContent = JSON.stringify(storageData, null, 2);
+            }
+        } catch (error) {
+            await this.logger.error('Failed to display storage data', { error });
+            this.showMessage('Failed to load storage data', true);
         }
     }
 }

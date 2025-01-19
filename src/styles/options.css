@@ -653,3 +653,68 @@ body {
   min-width: 80px;
   padding: 0.5rem 1rem;
 }
+
+.danger {
+  background-color: #dc3545;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.danger:hover {
+  background-color: #c82333;
+}
+
+.danger:disabled {
+  background-color: #dc354580;
+  cursor: not-allowed;
+}
+
+.storage-container {
+    background: #f8f9fa;
+    border: 1px solid #e9ecef;
+    border-radius: 8px;
+    margin-top: 1rem;
+    overflow: hidden;
+}
+
+.storage-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem;
+    background: #fff;
+    border-bottom: 1px solid #e9ecef;
+}
+
+.storage-header h4 {
+    margin: 0;
+    color: #1f2937;
+    font-size: 0.9rem;
+    font-weight: 500;
+}
+
+.storage-output {
+    padding: 1rem;
+    margin: 0;
+    background: #1f2937;
+    color: #e5e7eb;
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    font-size: 0.85rem;
+    line-height: 1.5;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+#refresh-storage {
+    padding: 0.5rem;
+    font-size: 0.85rem;
+}
+
+#refresh-storage i {
+    margin-right: 0.5rem;
+}

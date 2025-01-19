@@ -5,6 +5,7 @@ import { Logger } from '../utils/Logger';
 import { markdownToHtml } from '../utils/markdown';
 import '../styles/popup.css';
 import '../styles/markdown.css';
+import { StorageManager } from '../utils/StorageManager';
 
 interface Provider {
     type: ProviderType;
@@ -12,6 +13,7 @@ interface Provider {
     apiKey?: string;
     endpoint?: string;
     model?: string;
+    providerId: string;
 }
 
 interface Command {
@@ -30,7 +32,7 @@ const DEFAULT_COMMANDS: Command[] = [
 
 interface PopupState {
     providers: Provider[];
-    selectedProvider: string;
+    selectedProviderId: string;
     command: string;
     commands: Command[];
     isLoading: boolean;
@@ -50,11 +52,38 @@ const classNames = (...classes: (string | boolean | undefined)[]) => {
     return classes.filter(Boolean).join(' ');
 };
 
+// Add NoProvidersMessage component after the PopupState interface
+const NoProvidersMessage: React.FC = () => {
+    const handleSettings = () => {
+        chrome.runtime.openOptionsPage();
+    };
+
+    return (
+        <div className="no-providers-message">
+            <div className="welcome-icon">
+                <i className="fa-solid fa-wand-magic-sparkles fa-2x"></i>
+            </div>
+            <h2>Welcome to Lirum! 🎉</h2>
+            <p>
+                Let's get you started with your first AI provider! 🚀
+            </p>
+            <p>
+                Lirum supports various AI providers like OpenAI, Anthropic, and local models through Ollama. 
+                Click below to set up your preferred provider. ✨
+            </p>
+            <button className="primary-button" onClick={handleSettings}>
+                <i className="fa-solid fa-gear"></i>
+                Configure Provider
+            </button>
+        </div>
+    );
+};
+
 const Popup: React.FC = () => {
     const logger = Logger.getInstance();
     const [state, setState] = useState<PopupState>({
         providers: [],
-        selectedProvider: '',
+        selectedProviderId: '',
         command: '',
         commands: [],
         isLoading: false,
@@ -104,77 +133,14 @@ const Popup: React.FC = () => {
                     return;
                 }
 
-                // Load providers and commands from storage
-                const [syncData, localData, providerConfigs, commandData] = await Promise.all([
-                    chrome.storage.sync.get('providers'),
-                    chrome.storage.local.get('providers'),
-                    chrome.storage.local.get(
-                        Object.values(LLMProviderFactory.getProviderTypes())
-                            .map(type => `${type}_provider_config`)
-                    ),
-                    chrome.storage.sync.get('commands')
+                const storageManager = StorageManager.getInstance();
+                const [providers, commands] = await Promise.all([
+                    storageManager.getProviders(),
+                    storageManager.getCommands()
                 ]);
-
-                // Get commands from storage or use defaults
-                const commands = commandData.commands || DEFAULT_COMMANDS;
-                const firstCommand = commands[0]?.name || '';
-
-                // Load providers from both storage types
-                const [allProviders] = await Promise.all([
-                    syncData.providers || [],
-                    localData.providers || []
-                ]);
-
-                // Merge with local storage providers
-                if (localData.providers) {
-                    localData.providers.forEach(localProvider => {
-                        const existingIndex = allProviders.findIndex(p => p.type === localProvider.type);
-                        if (existingIndex !== -1) {
-                            allProviders[existingIndex] = {
-                                ...allProviders[existingIndex],
-                                ...localProvider
-                            };
-                        } else {
-                            allProviders.push(localProvider);
-                        }
-                    });
-                }
-
-                // Merge with provider-specific configs
-                Object.entries(providerConfigs).forEach(([key, config]) => {
-                    if (!config) return;
-                    const type = key.replace('_provider_config', '') as ProviderType;
-                    const existingIndex = allProviders.findIndex(p => p.type === type);
-                    
-                    if (existingIndex !== -1) {
-                        allProviders[existingIndex] = {
-                            ...allProviders[existingIndex],
-                            ...config,
-                            type,
-                            name: config.name || allProviders[existingIndex].name || LLMProviderFactory.getProviderName(type)
-                        };
-                    } else {
-                        allProviders.push({
-                            type,
-                            name: config.name || LLMProviderFactory.getProviderName(type),
-                            ...config
-                        });
-                    }
-                });
-                
-                if (!Array.isArray(allProviders) || allProviders.length === 0) {
-                    throw new Error('No providers configured');
-                }
-
-                // Log loaded providers (with redacted API keys)
-                const redactedProviders = allProviders.map(p => ({
-                    ...p,
-                    apiKey: p.apiKey ? `${p.apiKey.slice(0,2)}....${p.apiKey.slice(-2)}` : undefined
-                }));
-                logger.info('Popup providers loaded', { count: allProviders.length, providers: redactedProviders });
 
                 // Filter valid providers
-                const validProviders = allProviders.filter(provider => {
+                const validProviders = providers.filter(provider => {
                     const isValid = (provider.apiKey || provider.endpoint) && 
                                  provider.type && 
                                  Object.values(LLMProviderFactory.getProviderTypes()).includes(provider.type);
@@ -192,8 +158,6 @@ const Popup: React.FC = () => {
                 if (validProviders.length === 0) {
                     throw new Error('No valid providers configured');
                 }
-
-                logger.info('Valid providers filtered', { count: validProviders.length });
 
                 // Initialize first provider
                 const firstProvider = validProviders[0];
@@ -223,7 +187,7 @@ const Popup: React.FC = () => {
                         type: 'GET_PAGE_CONTENT' 
                     });
                     
-                    handleContentResponse(contentResponse, validProviders, firstProvider.type, commands);
+                    handleContentResponse(contentResponse, validProviders, firstProvider, commands);
                 } catch (error) {
                     logger.debug('Content script not ready, injecting...', { error });
                     
@@ -242,7 +206,7 @@ const Popup: React.FC = () => {
                             type: 'GET_PAGE_CONTENT' 
                         });
                         
-                        handleContentResponse(contentResponse, validProviders, firstProvider.type, commands);
+                        handleContentResponse(contentResponse, validProviders, firstProvider, commands);
                     } catch (retryError) {
                         throw new Error('Failed to get page content after script injection');
                     }
@@ -262,8 +226,8 @@ const Popup: React.FC = () => {
 
         const handleContentResponse = (
             contentResponse: any, 
-            validProviders: any[], 
-            selectedProvider: string,
+            validProviders: Provider[], 
+            firstProvider: Provider,
             commands: Command[]
         ) => {
             if (contentResponse?.error) {
@@ -272,7 +236,7 @@ const Popup: React.FC = () => {
 
             setState({
                 providers: validProviders,
-                selectedProvider: selectedProvider,
+                selectedProviderId: firstProvider.providerId,
                 command: commands[0]?.name || '',
                 commands: commands,
                 isLoading: false,
@@ -292,7 +256,10 @@ const Popup: React.FC = () => {
     }, []);
 
     const handleProcess = async () => {
-        if (!state.content || !state.selectedProvider) return;
+        if (!state.content || !state.selectedProviderId) return;
+
+        const selectedProvider = state.providers.find(p => p.providerId === state.selectedProviderId);
+        if (!selectedProvider) return;
 
         setState(prev => ({ 
             ...prev, 
@@ -364,7 +331,7 @@ const Popup: React.FC = () => {
             // Send the request through the port
             port.postMessage({
                 type: 'PROCESS_CONTENT',
-                provider: state.selectedProvider,
+                provider: selectedProvider.type,
                 command: state.command,
                 content: state.content,
                 title: document.title || '',
@@ -449,6 +416,12 @@ const Popup: React.FC = () => {
         );
     }
 
+    if (state.error === 'No valid providers configured') {
+        return (
+            <NoProvidersMessage />
+        );
+    }
+
     if (state.error) {
         return (
             <div className="popup-container">
@@ -456,7 +429,10 @@ const Popup: React.FC = () => {
                     <img src="../assets/logo.png" alt="Lirum Logo" className="logo" />
                     <h1>Lirum Chrome LLMs</h1>
                 </div>
-                <div className="error-message">{state.error}</div>
+                <div className="error-message">
+                    <i className="fa-solid fa-exclamation-circle"></i>
+                    <p>{state.error}</p>
+                </div>
             </div>
         );
     }
@@ -470,13 +446,13 @@ const Popup: React.FC = () => {
 
             <div className="controls">
                 <select 
-                    value={state.selectedProvider} 
-                    onChange={e => setState(prev => ({ ...prev, selectedProvider: e.target.value }))}
+                    value={state.selectedProviderId} 
+                    onChange={e => setState(prev => ({ ...prev, selectedProviderId: e.target.value }))}
                     disabled={state.isLoading}
                 >
                     <option value="">Select Provider</option>
                     {state.providers.map(provider => (
-                        <option key={provider.type} value={provider.type}>
+                        <option key={provider.providerId} value={provider.providerId}>
                             {provider.name}
                         </option>
                     ))}
@@ -558,12 +534,6 @@ const Popup: React.FC = () => {
                     Settings
                 </button>
             </div>
-
-            {state.error && (
-                <div className="error-message">
-                    {state.error}
-                </div>
-            )}
         </div>
     );
 };

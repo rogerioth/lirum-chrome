@@ -26,9 +26,15 @@
             </a>
           </li>
           <li class="nav-item">
-            <a href="#settings" class="nav-link">
+            <a href="#storage" class="nav-link">
+              <i class="nav-icon fa-solid fa-database"></i>
+              <span>Storage</span>
+            </a>
+          </li>
+          <li class="nav-item">
+            <a href="#logs" class="nav-link">
               <i class="nav-icon fa-solid fa-gear"></i>
-              <span>Settings</span>
+              <span>Logs</span>
             </a>
           </li>
         </ul>
@@ -107,10 +113,29 @@
         </div>
       </section>
 
-      <!-- Settings Section -->
-      <section id="settings" class="content-section">
+      <!-- Storage Section -->
+      <section id="storage" class="content-section">
         <div class="section-header">
-          <h1>Settings</h1>
+          <h1>Storage</h1>
+          <div class="header-actions">
+            <button id="refresh-storage" class="button secondary">
+              <i class="fa-solid fa-rotate"></i>
+              Refresh
+            </button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="storage-container">
+            <pre id="storage-output" class="storage-output"></pre>
+          </div>
+        </div>
+      </section>
+
+      <!-- Logs Section -->
+      <section id="logs" class="content-section">
+        <div class="section-header">
+          <h1>Logs</h1>
           <div class="header-actions">
             <button id="copy-logs" class="button secondary">
               <i class="fa-solid fa-clipboard"></i>
@@ -148,6 +173,12 @@
             </div>
             <div id="logs-output" class="logs-output"></div>
           </div>
+        </div>
+
+        <div class="settings-section">
+          <h3>Factory Reset</h3>
+          <p>Reset all settings to their default values. This will remove all providers and reset commands to defaults.</p>
+          <button id="factory-reset" class="danger">Factory Reset</button>
         </div>
       </section>
     </main>

@@ -534,3 +534,56 @@ input:focus {
     line-height: 1.6;
     position: relative;
 }
+
+.no-providers-message {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 2rem;
+    gap: 1rem;
+    min-width: 300px;
+}
+
+.no-providers-message .welcome-icon {
+    color: #6366f1;
+    margin-bottom: 0.5rem;
+}
+
+.no-providers-message h2 {
+    color: #1f2937;
+    margin: 0;
+    font-size: 1.5rem;
+}
+
+.no-providers-message p {
+    color: #4b5563;
+    margin: 0;
+    font-size: 0.95rem;
+    line-height: 1.5;
+}
+
+.no-providers-message .primary-button {
+    background-color: #6366f1;
+    color: white;
+    border: none;
+    padding: 0.75rem 1.5rem;
+    border-radius: 0.5rem;
+    font-size: 1rem;
+    font-weight: 500;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+    transition: background-color 0.2s ease;
+}
+
+.no-providers-message .primary-button:hover {
+    background-color: #4f46e5;
+}
+
+.no-providers-message .primary-button i {
+    font-size: 1rem;
+}
