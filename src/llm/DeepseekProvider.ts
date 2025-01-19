@@ -14,7 +14,7 @@ export class DeepseekProvider extends KeyedProvider implements LLMProvider {
 
   private apiKey: string | null = null;
   private currentModel: string;
-  private endpoint: string = 'https://api.deepseek.com';
+  private endpoint: string = this.defaultEndpoint;
 
   constructor() {
     super();
@@ -25,12 +25,14 @@ export class DeepseekProvider extends KeyedProvider implements LLMProvider {
 
   private async loadState(): Promise<void> {
     try {
-      const data = await chrome.storage.local.get(this.getStorageKey('deepseek'));
-      const state = data[this.getStorageKey('deepseek')];
-      if (state) {
-        this.apiKey = state.apiKey;
-        this.currentModel = state.model || this.defaultModel;
-        this.endpoint = state.endpoint || this.defaultEndpoint;
+      const data = await chrome.storage.sync.get('providers');
+      const providers = data.providers || [];
+      const config = providers.find((p: any) => p.type === 'deepseek' && p.key === this.key);
+      
+      if (config) {
+        this.apiKey = config.apiKey;
+        this.currentModel = config.model || this.defaultModel;
+        this.endpoint = config.endpoint || this.defaultEndpoint;
         await this.logger.debug('Deepseek provider state loaded', {
           endpoint: this.endpoint,
           currentModel: this.currentModel,
@@ -44,13 +46,26 @@ export class DeepseekProvider extends KeyedProvider implements LLMProvider {
 
   private async saveState(): Promise<void> {
     try {
-      await chrome.storage.local.set({
-        [this.getStorageKey('deepseek')]: {
-          apiKey: this.apiKey,
-          model: this.currentModel,
-          endpoint: this.endpoint
-        }
-      });
+      const data = await chrome.storage.sync.get('providers');
+      const providers = data.providers || [];
+      const index = providers.findIndex((p: any) => p.type === 'deepseek' && p.key === this.key);
+      
+      const config = {
+        type: 'deepseek',
+        key: this.key,
+        apiKey: this.apiKey,
+        model: this.currentModel,
+        endpoint: this.endpoint,
+        name: this.name
+      };
+
+      if (index >= 0) {
+        providers[index] = { ...providers[index], ...config };
+      } else {
+        providers.push(config);
+      }
+
+      await chrome.storage.sync.set({ providers });
       await this.logger.debug('Deepseek provider state saved', {
         endpoint: this.endpoint,
         currentModel: this.currentModel,

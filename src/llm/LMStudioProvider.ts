@@ -16,17 +16,20 @@ export class LMStudioProvider extends KeyedProvider implements LLMProvider {
   constructor() {
     super();
     this.currentModel = this.defaultModel;
+    this.endpoint = this.defaultEndpoint;
     this.logger = Logger.getInstance();
     this.loadState();
   }
 
   private async loadState(): Promise<void> {
     try {
-      const data = await chrome.storage.local.get(this.getStorageKey('lmstudio'));
-      const state = data[this.getStorageKey('lmstudio')];
-      if (state) {
-        this.endpoint = state.endpoint;
-        this.currentModel = state.model || this.defaultModel;
+      const data = await chrome.storage.sync.get('providers');
+      const providers = data.providers || [];
+      const config = providers.find((p: any) => p.type === 'lmstudio' && p.key === this.key);
+      
+      if (config) {
+        this.endpoint = config.endpoint || this.defaultEndpoint;
+        this.currentModel = config.model || this.defaultModel;
         await this.logger.debug('LM Studio provider state loaded', {
           endpoint: this.endpoint,
           currentModel: this.currentModel,
@@ -40,12 +43,25 @@ export class LMStudioProvider extends KeyedProvider implements LLMProvider {
 
   private async saveState(): Promise<void> {
     try {
-      await chrome.storage.local.set({
-        [this.getStorageKey('lmstudio')]: {
-          endpoint: this.endpoint,
-          model: this.currentModel
-        }
-      });
+      const data = await chrome.storage.sync.get('providers');
+      const providers = data.providers || [];
+      const index = providers.findIndex((p: any) => p.type === 'lmstudio' && p.key === this.key);
+      
+      const config = {
+        type: 'lmstudio',
+        key: this.key,
+        endpoint: this.endpoint,
+        model: this.currentModel,
+        name: this.name
+      };
+
+      if (index >= 0) {
+        providers[index] = { ...providers[index], ...config };
+      } else {
+        providers.push(config);
+      }
+
+      await chrome.storage.sync.set({ providers });
       await this.logger.debug('LM Studio provider state saved', {
         endpoint: this.endpoint,
         currentModel: this.currentModel,
