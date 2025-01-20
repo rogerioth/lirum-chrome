@@ -260,19 +260,19 @@ async function processContent(
                 try {
                     const content = await attemptStream();
                     
-                    await logger.info('Provider streaming response complete', {
+                    await logger.info('Stream completed successfully', {
                         requestId,
                         provider,
-                        responseLength: content.length,
-                        hasContent: Boolean(content),
+                        responseLength: content?.content?.length ?? 0,
+                        hasContent: Boolean(content?.content),
                         totalChunks: chunkCount
                     });
 
-                    if (!content) {
+                    if (!content?.content) {
                         throw new Error(`Stream completed but no content was received after ${chunkCount} chunks`);
                     }
 
-                    return { content };
+                    return { content: content.content };
                 } catch (error) {
                     const errorMessage = error instanceof Error ? error.message : String(error);
                     await logger.error('Streaming response failed', {
