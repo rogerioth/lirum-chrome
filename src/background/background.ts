@@ -106,7 +106,6 @@ async function processContent(
             requestId,
             provider,
             config: {
-                name: providerConfig.name,
                 hasApiKey: Boolean(providerConfig.apiKey),
                 hasEndpoint: Boolean(providerConfig.endpoint),
                 model: providerConfig.model,
