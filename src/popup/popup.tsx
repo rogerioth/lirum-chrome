@@ -288,6 +288,19 @@ const Popup: React.FC = () => {
                         // Convert the entire response to HTML
                         const newHtml = markdownToHtml(newResponse);
                         
+                        // If this is the final chunk, complete the streaming
+                        if (message.done) {
+                            port.disconnect();
+                            return {
+                                ...prev,
+                                response: newResponse,
+                                responseHtml: newHtml,
+                                isLoading: false,
+                                streamingPort: null,
+                                isProcessing: false
+                            };
+                        }
+
                         return {
                             ...prev,
                             response: newResponse,
@@ -295,20 +308,6 @@ const Popup: React.FC = () => {
                             isLoading: true
                         };
                     });
-
-                    if (message.done) {
-                        setState(prev => {
-                            if (!prev.streamingPort) return prev;
-
-                            port.disconnect();
-                            return {
-                                ...prev,
-                                isLoading: false,
-                                streamingPort: null,
-                                isProcessing: false
-                            };
-                        });
-                    }
                 } else if (message.type === 'STREAM_ERROR') {
                     setState(prev => {
                         if (!prev.streamingPort) return prev;

@@ -166,15 +166,13 @@ async function processContent(
                 let fullContent = '';
                 let hasReceivedContent = false;
                 let chunkCount = 0;
-                let retryCount = 0;
-                const MAX_RETRIES = 2;
 
                 const attemptStream = async () => {
                     await logger.debug('Starting stream attempt', {
                         requestId,
                         provider,
                         model: llmProvider.getCurrentModel(),
-                        attempt: retryCount + 1
+                        attempt: 1
                     });
 
                     // For Ollama, verify the endpoint is responding before streaming
@@ -214,24 +212,20 @@ async function processContent(
                             chunkNumber: chunkCount,
                             hasContent: Boolean(chunk?.content),
                             isDone: Boolean(chunk?.done),
-                            chunkContent: chunk?.content?.slice(0, 50),
-                            chunkDetails: JSON.stringify(chunk).slice(0, 200) // Log raw chunk for debugging
+                            chunkContent: chunk?.content?.slice(0, 50)
                         });
 
-                        if (!chunk) {
-                            await logger.error('Empty chunk received', {
-                                requestId,
-                                provider,
-                                chunkNumber: chunkCount,
-                                fullContentLength: fullContent.length
-                            });
-                            continue;
-                        }
+                        if (!chunk) continue;
 
+                        // Send content chunk if available
                         if (chunk.content) {
                             hasReceivedContent = true;
                             fullContent += chunk.content;
-                            port.postMessage({ type: 'STREAM_CHUNK', content: chunk.content, done: chunk.done });
+                            port.postMessage({ 
+                                type: 'STREAM_CHUNK', 
+                                content: chunk.content, 
+                                done: false 
+                            });
 
                             if (fullContent.length % 500 === 0) {
                                 await logger.debug('Streaming progress', {
@@ -243,8 +237,9 @@ async function processContent(
                             }
                         }
 
+                        // If this is the final chunk, send completion
                         if (chunk.done) {
-                            await logger.debug('Stream done signal received', {
+                            await logger.debug('Stream completed', {
                                 requestId,
                                 provider,
                                 hasReceivedContent,
@@ -252,25 +247,14 @@ async function processContent(
                                 finalContentLength: fullContent.length
                             });
 
-                            // For Ollama, if we get a done signal without content on first chunk, retry
-                            if (!hasReceivedContent && chunkCount === 1 && provider === 'ollama' && retryCount < MAX_RETRIES) {
-                                retryCount++;
-                                await logger.info('Retrying Ollama stream due to empty response', {
-                                    requestId,
-                                    attempt: retryCount,
-                                    maxRetries: MAX_RETRIES
-                                });
-                                return attemptStream();
-                            }
-
-                            if (!hasReceivedContent) {
-                                throw new Error(`Stream completed without receiving any content after ${chunkCount} chunks (attempt ${retryCount + 1}/${MAX_RETRIES + 1})`);
-                            }
-                            break;
+                            port.postMessage({ 
+                                type: 'STREAM_CHUNK', 
+                                content: '', 
+                                done: true 
+                            });
+                            return { content: fullContent };
                         }
                     }
-
-                    return fullContent;
                 };
 
                 try {
@@ -281,12 +265,11 @@ async function processContent(
                         provider,
                         responseLength: content.length,
                         hasContent: Boolean(content),
-                        totalChunks: chunkCount,
-                        retryCount
+                        totalChunks: chunkCount
                     });
 
                     if (!content) {
-                        throw new Error(`Stream completed but no content was received after ${chunkCount} chunks and ${retryCount} retries`);
+                        throw new Error(`Stream completed but no content was received after ${chunkCount} chunks`);
                     }
 
                     return { content };
@@ -300,8 +283,7 @@ async function processContent(
                         streamState: {
                             hasContent: Boolean(fullContent),
                             contentLength: fullContent.length,
-                            totalChunks: chunkCount,
-                            retryAttempts: retryCount
+                            totalChunks: chunkCount
                         }
                     });
                     port.postMessage({ type: 'STREAM_ERROR', error: errorMessage });

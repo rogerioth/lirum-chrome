@@ -156,6 +156,7 @@ export class DeepseekProvider extends KeyedProvider implements LLMProvider {
           const { done, value } = await reader.read();
           
           if (done) {
+            yield { content: '', done: true };
             break;
           }
 
@@ -165,44 +166,31 @@ export class DeepseekProvider extends KeyedProvider implements LLMProvider {
 
           for (const line of lines) {
             const trimmedLine = line.trim();
-            if (!trimmedLine || trimmedLine === 'data: [DONE]') {
-              if (trimmedLine === 'data: [DONE]') {
+            if (!trimmedLine || !trimmedLine.startsWith('data: ')) continue;
+
+            try {
+              const data = JSON.parse(trimmedLine.slice(6));
+              const choice = data.choices?.[0];
+              
+              // Send content if available
+              if (choice?.delta?.content) {
+                yield {
+                  content: choice.delta.content,
+                  done: false
+                };
+              }
+              
+              // Check if this is the final message with a finish_reason
+              if (choice?.finish_reason) {
                 yield { content: '', done: true };
+                return;
               }
-              continue;
+            } catch (e) {
+              this.logger.error('Failed to parse streaming response', { 
+                error: e,
+                line: trimmedLine
+              });
             }
-
-            if (trimmedLine.startsWith('data: ')) {
-              try {
-                const data = JSON.parse(trimmedLine.slice(6));
-                if (data.choices?.[0]?.delta?.content) {
-                  yield {
-                    content: data.choices[0].delta.content,
-                    done: false
-                  };
-                }
-              } catch (e) {
-                this.logger.error('Failed to parse streaming response', { 
-                  error: e,
-                  line: trimmedLine
-                });
-              }
-            }
-          }
-        }
-
-        // Handle any remaining content in the buffer
-        if (buffer) {
-          try {
-            const data = JSON.parse(buffer);
-            if (data.choices?.[0]?.delta?.content) {
-              yield {
-                content: data.choices[0].delta.content,
-                done: true
-              };
-            }
-          } catch (e) {
-            // Ignore parse error for final chunk
           }
         }
       } finally {
