@@ -329,6 +329,12 @@ const Popup: React.FC = () => {
             port.postMessage({
                 type: 'PROCESS_CONTENT',
                 provider: selectedProvider.type,
+                config: {
+                    apiKey: selectedProvider.apiKey,
+                    endpoint: selectedProvider.endpoint,
+                    model: selectedProvider.model
+                },
+                providerId: selectedProvider.providerId,
                 command: state.command,
                 content: state.content,
                 title: document.title || '',

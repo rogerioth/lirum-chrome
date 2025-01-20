@@ -61,7 +61,12 @@ async function processContent(
     command: string,
     content: string,
     title: string,
-    port?: chrome.runtime.Port
+    port?: chrome.runtime.Port,
+    config?: {
+        apiKey?: string;
+        endpoint?: string;
+        model?: string;
+    }
 ): Promise<{ content: string }> {
     const requestId = Math.random().toString(36).substring(7);
     
@@ -79,12 +84,15 @@ async function processContent(
         // Get provider instance
         const llmProvider = LLMProviderFactory.getProvider(provider);
         
-        // Get provider config from storage
-        const data = await chrome.storage.sync.get('providers');
-        const providers = data.providers || [];
-        const config = providers.find((p: any) => p.type === provider);
+        // Use provided config or get from storage
+        let providerConfig = config;
+        if (!providerConfig) {
+            const data = await chrome.storage.sync.get('providers');
+            const providers = data.providers || [];
+            providerConfig = providers.find((p: any) => p.type === provider);
+        }
         
-        if (!config) {
+        if (!providerConfig) {
             const error = `Provider ${provider} is not configured. Please go to extension settings and configure the provider.`;
             await logger.error('Provider not configured', { 
                 requestId,
@@ -98,20 +106,20 @@ async function processContent(
             requestId,
             provider,
             config: {
-                name: config.name,
-                hasApiKey: Boolean(config.apiKey),
-                hasEndpoint: Boolean(config.endpoint),
-                model: config.model,
-                endpoint: config.endpoint
+                name: providerConfig.name,
+                hasApiKey: Boolean(providerConfig.apiKey),
+                hasEndpoint: Boolean(providerConfig.endpoint),
+                model: providerConfig.model,
+                endpoint: providerConfig.endpoint
             }
         });
 
-        // Configure the provider with stored settings
+        // Configure the provider with provided settings
         try {
             llmProvider.configure({
-                apiKey: config.apiKey,
-                model: config.model,
-                endpoint: config.endpoint
+                apiKey: providerConfig.apiKey,
+                model: providerConfig.model,
+                endpoint: providerConfig.endpoint
             });
         } catch (error) {
             await logger.error('Failed to configure provider', {
@@ -123,7 +131,7 @@ async function processContent(
         }
 
         // Check if we have the required configuration
-        if (!config.apiKey && !config.endpoint) {
+        if (!providerConfig.apiKey && !providerConfig.endpoint) {
             const error = `Provider ${provider} is missing required configuration. ${
                 provider === 'openai' || provider === 'anthropic' || provider === 'deepseek' 
                     ? 'Please configure an API key in the extension settings.'
@@ -133,8 +141,8 @@ async function processContent(
                 requestId,
                 provider,
                 error,
-                hasApiKey: Boolean(config.apiKey),
-                hasEndpoint: Boolean(config.endpoint)
+                hasApiKey: Boolean(providerConfig.apiKey),
+                hasEndpoint: Boolean(providerConfig.endpoint)
             });
             throw new Error(error);
         }
@@ -173,7 +181,7 @@ async function processContent(
                     // For Ollama, verify the endpoint is responding before streaming
                     if (provider === 'ollama') {
                         try {
-                            const response = await fetch(`${config.endpoint}/api/version`);
+                            const response = await fetch(`${providerConfig.endpoint}/api/version`);
                             if (!response.ok) {
                                 throw new Error(`Ollama endpoint check failed: ${response.status} ${response.statusText}`);
                             }
@@ -185,7 +193,7 @@ async function processContent(
                         } catch (error) {
                             await logger.error('Ollama endpoint check failed', {
                                 requestId,
-                                endpoint: config.endpoint,
+                                endpoint: providerConfig.endpoint,
                                 error: error instanceof Error ? error.message : String(error)
                             });
                             throw new Error(`Failed to connect to Ollama endpoint: ${error instanceof Error ? error.message : String(error)}`);
@@ -426,7 +434,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             return false;
         }
 
-        processContent(request.provider, request.command, request.content, request.title)
+        processContent(request.provider, request.command, request.content, request.title, request.stream ? request.port : undefined, request.config)
             .then(response => {
                 logger.info(`Content processing successful ${requestId}`, {
                     responseLength: response.content.length
@@ -465,7 +473,8 @@ chrome.runtime.onConnect.addListener((port) => {
                     request.command, 
                     request.content, 
                     request.title, 
-                    port
+                    port,
+                    request.config
                 ).catch(error => {
                     const errorMessage = error instanceof Error ? error.message : String(error);
                     port.postMessage({ 
