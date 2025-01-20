@@ -370,11 +370,9 @@ const Popup: React.FC = () => {
     if (state.isInitializing) {
         return (
             <div className="popup-container">
-                <div className="header">
-                    <img src="../assets/logo.png" alt="Lirum Logo" className="logo" />
-                    <h1>Lirum Chrome LLMs</h1>
+                <div className="loading-container">
+                    <div className="loading-spinner"></div>
                 </div>
-                <div className="loading-bar" />
             </div>
         );
     }
@@ -382,9 +380,13 @@ const Popup: React.FC = () => {
     if (state.isChromeUrl) {
         return (
             <div className="popup-container">
-                <div className="header">
-                    <img src="../assets/logo.png" alt="Lirum Logo" className="logo" />
-                    <h1>Welcome to Lirum</h1>
+                <div className="header-section">
+                    <div className="header-icon">
+                        <img src="../assets/icon128.png" alt="Lirum Logo" />
+                    </div>
+                    <div className="header-title">
+                        <h1>Lirum</h1>
+                    </div>
                 </div>
                 
                 <div className="onboarding-message">
@@ -427,9 +429,13 @@ const Popup: React.FC = () => {
     if (state.error) {
         return (
             <div className="popup-container">
-                <div className="header">
-                    <img src="../assets/logo.png" alt="Lirum Logo" className="logo" />
-                    <h1>Lirum Chrome LLMs</h1>
+                <div className="header-section">
+                    <div className="header-icon">
+                        <img src="../assets/icon128.png" alt="Lirum Logo" />
+                    </div>
+                    <div className="header-title">
+                        <h1>Lirum</h1>
+                    </div>
                 </div>
                 <div className="error-message">
                     <i className="fa-solid fa-exclamation-circle"></i>
@@ -441,9 +447,13 @@ const Popup: React.FC = () => {
 
     return (
         <div className="popup-container">
-            <div className="header">
-                <img src="../assets/logo.png" alt="Lirum Logo" className="logo" />
-                <h1>Lirum Chrome LLMs</h1>
+            <div className="header-section">
+                <div className="header-icon">
+                    <img src="../assets/icon128.png" alt="Lirum Logo" />
+                </div>
+                <div className="header-title">
+                    <h1>Lirum</h1>
+                </div>
             </div>
 
             <div className="controls">
