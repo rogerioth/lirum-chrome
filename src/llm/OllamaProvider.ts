@@ -33,19 +33,37 @@ export class OllamaProvider extends KeyedProvider implements LLMProvider {
 
     protected async fetchWithExtension(url: string, options: RequestInit): Promise<Response> {
         try {
-            const response = await fetch(url, options);
+            const response = await fetch(url, {
+                ...options,
+                // Add CORS mode and credentials
+                mode: 'cors',
+                credentials: 'omit'
+            });
+
             if (!response.ok) {
                 const error = await response.text();
+                await this.logger.error('Ollama request failed', {
+                    status: response.status,
+                    statusText: response.statusText,
+                    error,
+                    endpoint: this.endpoint
+                });
                 throw new Error(`HTTP error! status: ${response.status}, message: ${error}`);
             }
+
+            await this.logger.debug('Ollama request successful', {
+                status: response.status,
+                endpoint: this.endpoint
+            });
+
             return response;
         } catch (error) {
-            await this.logger.error('Ollama request failed', { 
+            await this.logger.error('Ollama network error', { 
                 url,
                 error: error instanceof Error ? error.message : String(error),
                 endpoint: this.endpoint 
             });
-            throw error;
+            throw new Error(`Failed to connect to Ollama endpoint: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -141,17 +159,16 @@ export class OllamaProvider extends KeyedProvider implements LLMProvider {
             const response = await this.fetchWithExtension(`${this.endpoint}${this.API_URL}`, {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json'
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
                 },
                 body: JSON.stringify({
                     model,
                     prompt,
                     stream: true,
-                    options: {
-                        temperature: options.temperature || 0.7,
-                        top_p: 1,
-                        num_predict: options.maxTokens || 1000
-                    }
+                    temperature: options.temperature ?? 0.7,
+                    top_p: 1,
+                    max_tokens: options.maxTokens || 1000
                 })
             });
 
@@ -170,7 +187,7 @@ export class OllamaProvider extends KeyedProvider implements LLMProvider {
                     
                     if (done) {
                         if (!hasReceivedContent) {
-                            await this.logger.error('Stream completed without receiving any content', {
+                            await this.logger.error('Stream completed without content', {
                                 model,
                                 endpoint: this.endpoint
                             });
@@ -190,10 +207,9 @@ export class OllamaProvider extends KeyedProvider implements LLMProvider {
 
                         try {
                             const data = JSON.parse(trimmedLine);
-                            
-                            // Log raw response for debugging
-                            await this.logger.debug('Ollama raw response', {
-                                data: JSON.stringify(data).slice(0, 200)
+                            await this.logger.debug('Ollama stream chunk', {
+                                responseLength: data.response?.length || 0,
+                                done: data.done || false
                             });
 
                             if (data.response) {
@@ -204,7 +220,6 @@ export class OllamaProvider extends KeyedProvider implements LLMProvider {
                                 };
                             }
 
-                            // Only mark as done if we've received some content
                             if (data.done === true) {
                                 if (!hasReceivedContent) {
                                     await this.logger.error('Ollama returned done without content', {
@@ -217,12 +232,13 @@ export class OllamaProvider extends KeyedProvider implements LLMProvider {
                                 return;
                             }
                         } catch (e) {
-                            await this.logger.error('Failed to parse Ollama streaming response', { 
-                                error: e,
+                            await this.logger.error('Failed to parse Ollama stream chunk', { 
+                                error: e instanceof Error ? e.message : String(e),
                                 line: trimmedLine,
                                 model,
                                 endpoint: this.endpoint
                             });
+                            throw e;
                         }
                     }
                 }
