@@ -13,7 +13,6 @@ export class AnthropicProvider extends KeyedProvider implements LLMProvider {
     'claude-3-5-haiku-20241022',
     'claude-3-haiku-20240307'
   ];
-
   defaultEndpoint = 'https://api.anthropic.com';
 
   private currentModel: string;
@@ -24,64 +23,13 @@ export class AnthropicProvider extends KeyedProvider implements LLMProvider {
   private readonly ENDPOINT_PATTERN = /^https?:\/\/[^\s/$.?#].[^\s]*$/i;
 
   private apiKey: string | null = null;
-  private endpoint: string = this.defaultEndpoint;
+  private endpoint: string;
 
   constructor() {
     super();
     this.currentModel = this.defaultModel;
+    this.endpoint = this.defaultEndpoint;
     this.logger = Logger.getInstance();
-    this.loadState();
-  }
-
-  private async loadState(): Promise<void> {
-    try {
-      const data = await chrome.storage.sync.get('providers');
-      const providers = data.providers || [];
-      const config = providers.find((p: any) => p.type === 'anthropic' && p.key === this.key);
-      
-      if (config) {
-        this.apiKey = config.apiKey;
-        this.currentModel = config.model || this.defaultModel;
-        this.endpoint = config.endpoint || this.defaultEndpoint;
-        await this.logger.debug('Anthropic provider state loaded', {
-          currentModel: this.currentModel,
-          key: this.key
-        });
-      }
-    } catch (error) {
-      await this.logger.error('Failed to load Anthropic provider state', { error });
-    }
-  }
-
-  private async saveState(): Promise<void> {
-    try {
-      const data = await chrome.storage.sync.get('providers');
-      const providers = data.providers || [];
-      const index = providers.findIndex((p: any) => p.type === 'anthropic' && p.key === this.key);
-      
-      const config = {
-        type: 'anthropic',
-        key: this.key,
-        apiKey: this.apiKey,
-        model: this.currentModel,
-        endpoint: this.endpoint,
-        name: this.name
-      };
-
-      if (index >= 0) {
-        providers[index] = { ...providers[index], ...config };
-      } else {
-        providers.push(config);
-      }
-
-      await chrome.storage.sync.set({ providers });
-      await this.logger.debug('Anthropic provider state saved', {
-        currentModel: this.currentModel,
-        key: this.key
-      });
-    } catch (error) {
-      await this.logger.error('Failed to save Anthropic provider state', { error });
-    }
   }
 
   async test(apiKey?: string, endpoint?: string): Promise<void> {
@@ -89,14 +37,25 @@ export class AnthropicProvider extends KeyedProvider implements LLMProvider {
       throw new Error('Invalid API key format. Key should be at least 5 characters long.');
     }
 
-    // Test the API key with a simple models list request
+    const testEndpoint = endpoint || this.defaultEndpoint;
+
+    // Test the API key with a simple messages request
     try {
-      const response = await fetch(`${endpoint}/v1/models`, {
+      await this.logger.info('Testing Anthropic connection', { endpoint: testEndpoint });
+
+      const response = await fetch(`${testEndpoint}/v1/messages`, {
+        method: 'POST',
         headers: {
+          'Content-Type': 'application/json',
           'x-api-key': apiKey,
           'anthropic-version': this.API_VERSION,
           'anthropic-dangerous-direct-browser-access': 'true'
-        }
+        },
+        body: JSON.stringify({
+          model: this.defaultModel,
+          messages: [{ role: 'user', content: 'Hello' }],
+          max_tokens: 1
+        })
       });
 
       if (!response.ok) {
@@ -269,38 +228,11 @@ export class AnthropicProvider extends KeyedProvider implements LLMProvider {
     return this.currentModel;
   }
 
-  setApiKey(apiKey: string): void {
-    if (!this.validateApiKey(apiKey)) {
-      throw new Error('Invalid API key format');
-    }
-    this.apiKey = apiKey;
-    this.logger.debug('Anthropic API key set');
-    this.saveState();
-  }
-
-  setModel(model: string): void {
-    if (!this.availableModels.includes(model)) {
-      throw new Error(`Invalid model. Available models: ${this.availableModels.join(', ')}`);
-    }
-    this.currentModel = model;
-    this.logger.debug('Anthropic model set', { model });
-    this.saveState();
-  }
-
-  setEndpoint(endpoint: string): void {
-    if (!this.validateEndpoint(endpoint)) {
-      throw new Error('Invalid endpoint URL format');
-    }
-    this.endpoint = endpoint;
-    this.logger.debug('Anthropic endpoint set', { endpoint });
-    this.saveState();
-  }
-
-  validateApiKey(apiKey: string): boolean {
+  private validateApiKey(apiKey: string): boolean {
     return this.API_KEY_PATTERN.test(apiKey);
   }
 
-  validateEndpoint(endpoint: string): boolean {
+  private validateEndpoint(endpoint: string): boolean {
     return this.ENDPOINT_PATTERN.test(endpoint);
   }
 
@@ -312,10 +244,16 @@ export class AnthropicProvider extends KeyedProvider implements LLMProvider {
       this.apiKey = config.apiKey;
     }
     if (config.model) {
-      this.setModel(config.model);
+      if (!this.availableModels.includes(config.model)) {
+        throw new Error(`Invalid model. Available models: ${this.availableModels.join(', ')}`);
+      }
+      this.currentModel = config.model;
     }
     if (config.endpoint) {
-      this.setEndpoint(config.endpoint);
+      if (!this.validateEndpoint(config.endpoint)) {
+        throw new Error('Invalid endpoint URL format');
+      }
+      this.endpoint = config.endpoint;
     }
   }
 }

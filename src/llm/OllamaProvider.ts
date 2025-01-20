@@ -29,7 +29,6 @@ export class OllamaProvider extends KeyedProvider implements LLMProvider {
         this.currentModel = this.defaultModel;
         this.endpoint = this.defaultEndpoint;
         this.logger = Logger.getInstance();
-        this.loadState();
     }
 
     protected async fetchWithExtension(url: string, options: RequestInit): Promise<Response> {
@@ -244,73 +243,19 @@ export class OllamaProvider extends KeyedProvider implements LLMProvider {
         return this.currentModel;
     }
 
-    setModel(model: string): void {
-        // Allow any model name since Ollama supports custom models
-        this.currentModel = model;
-        this.logger.debug('Ollama model set', { model });
-        this.saveState();
-    }
-
-    validateEndpoint(endpoint: string): boolean {
+    private validateEndpoint(endpoint: string): boolean {
         return this.ENDPOINT_PATTERN.test(endpoint);
-    }
-
-    validateApiKey(apiKey: string): boolean {
-        return true; // Ollama doesn't use API keys
-    }
-
-    setEndpoint(endpoint: string): void {
-        if (!this.validateEndpoint(endpoint)) {
-            throw new Error('Invalid endpoint URL format');
-        }
-        this.endpoint = endpoint;
-        this.logger.debug('Ollama endpoint set', { endpoint });
-        this.saveState();
-    }
-
-    private async loadState(): Promise<void> {
-        try {
-            const data = await chrome.storage.local.get(this.getStorageKey('ollama'));
-            const state = data[this.getStorageKey('ollama')];
-            if (state) {
-                this.endpoint = state.endpoint;
-                this.currentModel = state.model || this.defaultModel;
-                await this.logger.debug('Ollama provider state loaded', {
-                    endpoint: this.endpoint,
-                    currentModel: this.currentModel,
-                    key: this.key
-                });
-            }
-        } catch (error) {
-            await this.logger.error('Failed to load Ollama provider state', { error });
-        }
-    }
-
-    private async saveState(): Promise<void> {
-        try {
-            await chrome.storage.local.set({
-                [this.getStorageKey('ollama')]: {
-                    endpoint: this.endpoint,
-                    model: this.currentModel
-                }
-            });
-            await this.logger.debug('Ollama provider state saved', {
-                endpoint: this.endpoint,
-                currentModel: this.currentModel,
-                key: this.key
-            });
-        } catch (error) {
-            await this.logger.error('Failed to save Ollama provider state', { error });
-        }
     }
 
     configure(config: { apiKey?: string; model?: string; endpoint?: string }): void {
         if (config.model) {
-            this.setModel(config.model);
+            this.currentModel = config.model;
         }
         if (config.endpoint) {
-            this.setEndpoint(config.endpoint);
+            if (!this.validateEndpoint(config.endpoint)) {
+                throw new Error('Invalid endpoint URL format');
+            }
+            this.endpoint = config.endpoint;
         }
-        // Ollama doesn't use API keys, so we ignore that config
     }
 }

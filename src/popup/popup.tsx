@@ -55,7 +55,7 @@ const classNames = (...classes: (string | boolean | undefined)[]) => {
 // Add NoProvidersMessage component after the PopupState interface
 const NoProvidersMessage: React.FC = () => {
     const handleSettings = () => {
-        chrome.runtime.openOptionsPage();
+        StorageManager.getInstance().openOptionsPage();
     };
 
     return (
@@ -81,6 +81,7 @@ const NoProvidersMessage: React.FC = () => {
 
 const Popup: React.FC = () => {
     const logger = Logger.getInstance();
+    const storageManager = StorageManager.getInstance();
     const [state, setState] = useState<PopupState>({
         providers: [],
         selectedProviderId: '',
@@ -109,8 +110,8 @@ const Popup: React.FC = () => {
     }, [state.response]);
 
     const handleChromeUrl = async () => {
-        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        return tab.url?.startsWith('chrome://');
+        const tab = await storageManager.getCurrentTab();
+        return tab?.url?.startsWith('chrome://');
     };
 
     useEffect(() => {
@@ -133,7 +134,6 @@ const Popup: React.FC = () => {
                     return;
                 }
 
-                const storageManager = StorageManager.getInstance();
                 const [providers, commands] = await Promise.all([
                     storageManager.listProviders(),
                     storageManager.listCommands()
@@ -161,7 +161,7 @@ const Popup: React.FC = () => {
 
                 // Initialize first provider
                 const firstProvider = validProviders[0];
-                const initResult = await chrome.runtime.sendMessage({
+                const initResult = await storageManager.sendRuntimeMessage({
                     type: 'INITIALIZE_PROVIDER',
                     provider: firstProvider.type,
                     config: {
@@ -176,14 +176,14 @@ const Popup: React.FC = () => {
                 }
 
                 // Get page content
-                const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+                const tab = await storageManager.getCurrentTab();
                 if (!tab?.id) {
                     throw new Error('No active tab found');
                 }
 
                 // Try to get content first, if it fails then inject the script
                 try {
-                    const contentResponse = await chrome.tabs.sendMessage(tab.id, { 
+                    const contentResponse = await storageManager.sendMessageToTab(tab.id, { 
                         type: 'GET_PAGE_CONTENT' 
                     });
                     
@@ -192,17 +192,14 @@ const Popup: React.FC = () => {
                     logger.debug('Content script not ready, injecting...', { error });
                     
                     // Inject content script
-                    await chrome.scripting.executeScript({
-                        target: { tabId: tab.id },
-                        files: ['content/content.js']
-                    });
+                    await storageManager.executeScriptInTab(tab.id, ['content/content.js']);
 
                     // Wait for script to initialize
                     await new Promise(resolve => setTimeout(resolve, 500));
 
                     // Try getting content again
                     try {
-                        const contentResponse = await chrome.tabs.sendMessage(tab.id, { 
+                        const contentResponse = await storageManager.sendMessageToTab(tab.id, { 
                             type: 'GET_PAGE_CONTENT' 
                         });
                         
@@ -274,7 +271,7 @@ const Popup: React.FC = () => {
 
         try {
             // Create a port for streaming
-            const port = chrome.runtime.connect({ name: 'llm_stream' });
+            const port = storageManager.connectToRuntime('llm_stream');
             
             setState(prev => ({ ...prev, streamingPort: port }));
 
@@ -349,7 +346,7 @@ const Popup: React.FC = () => {
     };
 
     const handleSettings = () => {
-        chrome.runtime.openOptionsPage();
+        storageManager.openOptionsPage();
     };
 
     const toggleInput = () => {

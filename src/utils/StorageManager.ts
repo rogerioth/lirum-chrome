@@ -152,4 +152,133 @@ export class StorageManager {
             throw error;
         }
     }
+
+    // Provider state management
+    public async saveProviderState(type: string, key: string, config: any): Promise<void> {
+        try {
+            await Promise.all([
+                chrome.storage.local.get('providers').then(data => {
+                    const providers = data.providers || [];
+                    const existingIndex = providers.findIndex((p: any) => p.type === type && p.key === key);
+                    
+                    if (existingIndex >= 0) {
+                        providers[existingIndex] = { ...providers[existingIndex], ...config, key };
+                    } else {
+                        providers.push({ type, key, ...config });
+                    }
+                    
+                    return chrome.storage.local.set({ providers });
+                }),
+                chrome.storage.local.set({ [`${type}_provider_${key}`]: config })
+            ]);
+
+            await this.logger.debug(`${type} provider state saved`, {
+                key,
+                ...config
+            });
+        } catch (error) {
+            await this.logger.error(`Failed to save ${type} provider state`, { error });
+            throw error;
+        }
+    }
+
+    public async loadProviderState(type: string, key: string): Promise<any> {
+        try {
+            const data = await chrome.storage.local.get(`${type}_provider_${key}`);
+            const state = data[`${type}_provider_${key}`];
+            
+            if (state) {
+                await this.logger.debug(`${type} provider state loaded`, {
+                    key,
+                    ...state
+                });
+            }
+            
+            return state;
+        } catch (error) {
+            await this.logger.error(`Failed to load ${type} provider state`, { error });
+            throw error;
+        }
+    }
+
+    public async getAllStorageData(): Promise<{ sync: any, local: any }> {
+        try {
+            const [syncData, localData] = await Promise.all([
+                chrome.storage.sync.get(null),
+                chrome.storage.local.get(null)
+            ]);
+            return { sync: syncData, local: localData };
+        } catch (error) {
+            await this.logger.error('Failed to get all storage data', { error });
+            throw error;
+        }
+    }
+
+    public async clearLogs(): Promise<void> {
+        try {
+            await chrome.storage.local.set({ logs: [] });
+            await this.logger.info('Logs cleared');
+        } catch (error) {
+            await this.logger.error('Failed to clear logs', { error });
+            throw error;
+        }
+    }
+
+    public async getCurrentTab(): Promise<chrome.tabs.Tab | null> {
+        try {
+            const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+            return tab || null;
+        } catch (error) {
+            await this.logger.error('Failed to get current tab', { error });
+            throw error;
+        }
+    }
+
+    public async executeScriptInTab(tabId: number, files: string[]): Promise<void> {
+        try {
+            await chrome.scripting.executeScript({
+                target: { tabId },
+                files
+            });
+        } catch (error) {
+            await this.logger.error('Failed to execute script in tab', { error });
+            throw error;
+        }
+    }
+
+    public async sendMessageToTab(tabId: number, message: any): Promise<any> {
+        try {
+            return await chrome.tabs.sendMessage(tabId, message);
+        } catch (error) {
+            await this.logger.error('Failed to send message to tab', { error });
+            throw error;
+        }
+    }
+
+    public async sendRuntimeMessage(message: any): Promise<any> {
+        try {
+            return await chrome.runtime.sendMessage(message);
+        } catch (error) {
+            await this.logger.error('Failed to send runtime message', { error });
+            throw error;
+        }
+    }
+
+    public connectToRuntime(name: string): chrome.runtime.Port {
+        try {
+            return chrome.runtime.connect({ name });
+        } catch (error) {
+            this.logger.error('Failed to connect to runtime', { error });
+            throw error;
+        }
+    }
+
+    public openOptionsPage(): void {
+        try {
+            chrome.runtime.openOptionsPage();
+        } catch (error) {
+            this.logger.error('Failed to open options page', { error });
+            throw error;
+        }
+    }
 } 

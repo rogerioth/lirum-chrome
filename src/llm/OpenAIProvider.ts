@@ -233,39 +233,33 @@ export class OpenAIProvider extends KeyedProvider implements LLMProvider {
     return this.currentModel;
   }
 
-  setModel(model: string): void {
-    if (!this.availableModels.includes(model)) {
-      throw new Error(`Invalid model. Available models: ${this.availableModels.join(', ')}`);
-    }
-    this.currentModel = model;
-  }
-
-  validateApiKey(apiKey: string): boolean {
+  private validateApiKey(apiKey: string): boolean {
     return this.API_KEY_PATTERN.test(apiKey);
   }
 
-  validateEndpoint(endpoint: string): boolean {
+  private validateEndpoint(endpoint: string): boolean {
     return this.ENDPOINT_PATTERN.test(endpoint);
   }
 
-  setEndpoint(endpoint: string): void {
-    if (!this.validateEndpoint(endpoint)) {
-      throw new Error('Invalid endpoint URL format');
-    }
-    this.endpoint = endpoint;
-    this.logger.debug('OpenAI endpoint set', { endpoint });
-  }
-
-  // Methods to configure the provider (called by the UI layer)
   configure(config: { apiKey?: string; model?: string; endpoint?: string }): void {
     if (config.apiKey) {
+      if (!this.validateApiKey(config.apiKey)) {
+        throw new Error('Invalid API key format');
+      }
       this.apiKey = config.apiKey;
     }
     if (config.model) {
-      this.setModel(config.model);
+      if (!this.availableModels.includes(config.model)) {
+        throw new Error(`Invalid model. Available models: ${this.availableModels.join(', ')}`);
+      }
+      this.currentModel = config.model;
     }
     if (config.endpoint) {
-      this.setEndpoint(config.endpoint);
+      if (!this.validateEndpoint(config.endpoint)) {
+        throw new Error('Invalid endpoint URL format');
+      }
+      this.endpoint = config.endpoint;
+      this.logger.debug('OpenAI endpoint set', { endpoint: this.endpoint });
     }
   }
 }

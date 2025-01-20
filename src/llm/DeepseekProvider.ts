@@ -11,69 +11,17 @@ export class DeepseekProvider extends KeyedProvider implements LLMProvider {
   private readonly API_URL = 'https://api.deepseek.com/v1/chat/completions';
   protected readonly logger: Logger;
   private readonly API_KEY_PATTERN = /^.{5,}$/;
+  private readonly ENDPOINT_PATTERN = /^https?:\/\/[^\s/$.?#].[^\s]*$/i;
 
   private apiKey: string | null = null;
   private currentModel: string;
-  private endpoint: string = this.defaultEndpoint;
+  private endpoint: string;
 
   constructor() {
     super();
     this.currentModel = this.defaultModel;
+    this.endpoint = this.defaultEndpoint;
     this.logger = Logger.getInstance();
-    this.loadState();
-  }
-
-  private async loadState(): Promise<void> {
-    try {
-      const data = await chrome.storage.sync.get('providers');
-      const providers = data.providers || [];
-      const config = providers.find((p: any) => p.type === 'deepseek' && p.key === this.key);
-      
-      if (config) {
-        this.apiKey = config.apiKey;
-        this.currentModel = config.model || this.defaultModel;
-        this.endpoint = config.endpoint || this.defaultEndpoint;
-        await this.logger.debug('Deepseek provider state loaded', {
-          endpoint: this.endpoint,
-          currentModel: this.currentModel,
-          key: this.key
-        });
-      }
-    } catch (error) {
-      await this.logger.error('Failed to load Deepseek provider state', { error });
-    }
-  }
-
-  private async saveState(): Promise<void> {
-    try {
-      const data = await chrome.storage.sync.get('providers');
-      const providers = data.providers || [];
-      const index = providers.findIndex((p: any) => p.type === 'deepseek' && p.key === this.key);
-      
-      const config = {
-        type: 'deepseek',
-        key: this.key,
-        apiKey: this.apiKey,
-        model: this.currentModel,
-        endpoint: this.endpoint,
-        name: this.name
-      };
-
-      if (index >= 0) {
-        providers[index] = { ...providers[index], ...config };
-      } else {
-        providers.push(config);
-      }
-
-      await chrome.storage.sync.set({ providers });
-      await this.logger.debug('Deepseek provider state saved', {
-        endpoint: this.endpoint,
-        currentModel: this.currentModel,
-        key: this.key
-      });
-    } catch (error) {
-      await this.logger.error('Failed to save Deepseek provider state', { error });
-    }
   }
 
   async test(apiKey?: string, endpoint?: string): Promise<void> {
@@ -270,39 +218,12 @@ export class DeepseekProvider extends KeyedProvider implements LLMProvider {
     return this.currentModel;
   }
 
-  setApiKey(apiKey: string): void {
-    if (!this.validateApiKey(apiKey)) {
-      throw new Error('Invalid API key format');
-    }
-    this.apiKey = apiKey;
-    this.logger.debug('Deepseek API key set');
-    this.saveState();
-  }
-
-  setModel(model: string): void {
-    if (!this.availableModels.includes(model)) {
-      throw new Error(`Invalid model. Available models: ${this.availableModels.join(', ')}`);
-    }
-    this.currentModel = model;
-    this.logger.debug('Deepseek model set', { model });
-    this.saveState();
-  }
-
-  setEndpoint(endpoint: string): void {
-    if (!this.validateEndpoint(endpoint)) {
-      throw new Error('Invalid endpoint URL format');
-    }
-    this.endpoint = endpoint;
-    this.logger.debug('Deepseek endpoint set', { endpoint });
-    this.saveState();
-  }
-
-  validateApiKey(apiKey: string): boolean {
+  private validateApiKey(apiKey: string): boolean {
     return this.API_KEY_PATTERN.test(apiKey);
   }
 
-  validateEndpoint(endpoint: string): boolean {
-    return true; // Deepseek doesn't support custom endpoints
+  private validateEndpoint(endpoint: string): boolean {
+    return this.ENDPOINT_PATTERN.test(endpoint);
   }
 
   configure(config: { apiKey?: string; model?: string; endpoint?: string }): void {
@@ -311,12 +232,21 @@ export class DeepseekProvider extends KeyedProvider implements LLMProvider {
         throw new Error('Invalid API key format');
       }
       this.apiKey = config.apiKey;
+      this.logger.debug('Deepseek API key set');
     }
     if (config.model) {
-      this.setModel(config.model);
+      if (!this.availableModels.includes(config.model)) {
+        throw new Error(`Invalid model. Available models: ${this.availableModels.join(', ')}`);
+      }
+      this.currentModel = config.model;
+      this.logger.debug('Deepseek model set', { model: config.model });
     }
     if (config.endpoint) {
-      this.setEndpoint(config.endpoint);
+      if (!this.validateEndpoint(config.endpoint)) {
+        throw new Error('Invalid endpoint URL format');
+      }
+      this.endpoint = config.endpoint;
+      this.logger.debug('Deepseek endpoint set', { endpoint: config.endpoint });
     }
   }
 }

@@ -8,7 +8,7 @@ export class LMStudioProvider extends KeyedProvider implements LLMProvider {
   availableModels = ['local-model'];
   defaultEndpoint = 'http://localhost:1234';
   private currentModel: string;
-  private endpoint: string | null = null;
+  private endpoint: string;
   private readonly API_URL = '/v1/chat/completions';
   private readonly ENDPOINT_PATTERN = /^https?:\/\/[^\s/$.?#].[^\s]*$/i;
   protected readonly logger: Logger;
@@ -18,15 +18,40 @@ export class LMStudioProvider extends KeyedProvider implements LLMProvider {
     this.currentModel = this.defaultModel;
     this.endpoint = this.defaultEndpoint;
     this.logger = Logger.getInstance();
-    this.loadState();
+  }
+
+  async test(apiKey?: string, endpoint?: string): Promise<void> {
+    const testEndpoint = endpoint || this.defaultEndpoint;
+    if (!this.validateEndpoint(testEndpoint)) {
+      throw new Error('Invalid endpoint URL format. Please provide a valid HTTP/HTTPS URL.');
+    }
+
+    try {
+      await this.logger.info('Testing LM Studio connection', { endpoint: testEndpoint });
+
+      const response = await fetch(`${testEndpoint}/v1/models`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error?.message || 'Failed to connect to LM Studio');
+      }
+
+      await this.logger.info('LM Studio provider validated successfully');
+    } catch (error) {
+      await this.logger.error('LM Studio test failed', { 
+        endpoint: testEndpoint,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      throw error;
+    }
   }
 
   private async loadState(): Promise<void> {
     try {
-      const data = await chrome.storage.sync.get('providers');
-      const providers = data.providers || [];
-      const config = providers.find((p: any) => p.type === 'lmstudio' && p.key === this.key);
-      
+      const config = await this.loadProviderState('lmstudio');
       if (config) {
         this.endpoint = config.endpoint || this.defaultEndpoint;
         this.currentModel = config.model || this.defaultModel;
@@ -43,25 +68,11 @@ export class LMStudioProvider extends KeyedProvider implements LLMProvider {
 
   private async saveState(): Promise<void> {
     try {
-      const data = await chrome.storage.sync.get('providers');
-      const providers = data.providers || [];
-      const index = providers.findIndex((p: any) => p.type === 'lmstudio' && p.key === this.key);
-      
       const config = {
-        type: 'lmstudio',
-        key: this.key,
         endpoint: this.endpoint,
-        model: this.currentModel,
-        name: this.name
+        model: this.currentModel
       };
-
-      if (index >= 0) {
-        providers[index] = { ...providers[index], ...config };
-      } else {
-        providers.push(config);
-      }
-
-      await chrome.storage.sync.set({ providers });
+      await this.saveProviderState('lmstudio', config);
       await this.logger.debug('LM Studio provider state saved', {
         endpoint: this.endpoint,
         currentModel: this.currentModel,
@@ -95,42 +106,6 @@ export class LMStudioProvider extends KeyedProvider implements LLMProvider {
         url,
         error: error instanceof Error ? error.message : String(error),
         endpoint: this.endpoint 
-      });
-      throw error;
-    }
-  }
-
-  async test(apiKey?: string, endpoint?: string): Promise<void> {
-    try {
-      const testEndpoint = endpoint || this.defaultEndpoint;
-      if (!this.validateEndpoint(testEndpoint)) {
-        throw new Error('Invalid endpoint URL format. Please provide a valid HTTP/HTTPS URL.');
-      }
-
-      await this.logger.info('Testing LM Studio connection', { endpoint: testEndpoint });
-
-      // Temporarily set endpoint for testing
-      const originalEndpoint = this.endpoint;
-      this.endpoint = testEndpoint;
-
-      try {
-        // Test the endpoint with a simple models list request
-        const response = await this.fetchWithExtension(this.getEndpointUrl('models'), {
-          method: 'GET',
-          headers: { 'Content-Type': 'application/json' }
-        });
-
-        const data = await response.json();
-        await this.logger.info('LM Studio models available', { models: data.data });
-      } finally {
-        // Restore original endpoint
-        this.endpoint = originalEndpoint;
-      }
-
-    } catch (error) {
-      await this.logger.error('LM Studio test failed', { 
-        endpoint: endpoint || this.defaultEndpoint,
-        error: error instanceof Error ? error.message : String(error)
       });
       throw error;
     }
@@ -309,11 +284,13 @@ export class LMStudioProvider extends KeyedProvider implements LLMProvider {
 
   configure(config: { apiKey?: string; model?: string; endpoint?: string }): void {
     if (config.model) {
-      this.setModel(config.model);
+      this.currentModel = config.model;
     }
     if (config.endpoint) {
-      this.setEndpoint(config.endpoint);
+      if (!this.validateEndpoint(config.endpoint)) {
+        throw new Error('Invalid endpoint URL format');
+      }
+      this.endpoint = config.endpoint;
     }
-    // LM Studio doesn't use API keys, so we ignore that config
   }
 }

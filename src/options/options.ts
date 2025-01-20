@@ -103,19 +103,13 @@ class OptionsManager {
             const provider = this.getProviderInstance(type);
             const isLocal = this.isLocalProvider(type);
 
-            // Validate inputs
+            // Validate required fields
             if (!endpointInput.value) {
                 throw new Error('Endpoint is required');
-            }
-            if (endpointInput.value && provider.validateEndpoint?.(endpointInput.value) === false) {
-                throw new Error('Invalid endpoint URL format. Please provide a valid HTTP/HTTPS URL.');
             }
 
             if (!isLocal && !apiKeyInput.value) {
                 throw new Error('API key is required');
-            }
-            if (!isLocal && apiKeyInput.value && provider.validateApiKey?.(apiKeyInput.value) === false) {
-                throw new Error('Invalid API key format.');
             }
 
             // Request host permission for the endpoint
@@ -134,7 +128,7 @@ class OptionsManager {
             if (isLocal) {
                 await provider.test(undefined, endpointInput.value);
             } else {
-                await provider.test(apiKeyInput.value);
+                await provider.test(apiKeyInput.value, endpointInput.value);
             }
 
             this.showMessage('Connection test successful!', false, true);
@@ -766,8 +760,7 @@ class OptionsManager {
     }
 
     private async clearLogs(): Promise<void> {
-        // Clear logs by setting an empty array
-        await chrome.storage.local.set({ logs: [] });
+        await this.storageManager.clearLogs();
         await this.displayLogs();
     }
 
@@ -1046,19 +1039,22 @@ class OptionsManager {
 
     private async displayStorageData(): Promise<void> {
         try {
-            const [syncData, localData] = await Promise.all([
-                chrome.storage.sync.get(null),
-                chrome.storage.local.get(null)
-            ]);
+            const storageData = await this.storageManager.getAllStorageData();
 
-            const storageData = {
-                sync: syncData,
-                local: localData
+            // Create a copy of the data to modify
+            const displayData = {
+                sync: { ...storageData.sync },
+                local: { ...storageData.local }
             };
+
+            // Redact logs from display
+            if (displayData.local.logs) {
+                displayData.local.logs = "<logs - check Settings/Logs>";
+            }
 
             const storageOutput = document.getElementById('storage-output');
             if (storageOutput) {
-                storageOutput.textContent = JSON.stringify(storageData, null, 2);
+                storageOutput.textContent = JSON.stringify(displayData, null, 2);
             }
         } catch (error) {
             await this.logger.error('Failed to display storage data', { error });
