@@ -870,3 +870,81 @@ body {
   color: var(--gray-900);
   margin: 0;
 }
+
+/* About section styles */
+.about-container {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 2rem;
+}
+
+.about-logo-section {
+  text-align: center;
+  margin-bottom: 3rem;
+}
+
+.about-logo {
+  width: 128px;
+  height: 128px;
+  margin-bottom: 1rem;
+}
+
+.about-logo-section h2 {
+  color: var(--gray-900);
+  font-size: 1.5rem;
+  font-weight: 600;
+}
+
+.about-content {
+  display: grid;
+  gap: 2rem;
+}
+
+.about-card {
+  background: white;
+  border-radius: var(--border-radius);
+  padding: 1.5rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.about-card h3 {
+  color: var(--gray-900);
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin-bottom: 1rem;
+}
+
+.about-card p {
+  color: var(--gray-700);
+  line-height: 1.6;
+}
+
+.about-links {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.about-link {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: var(--primary-color);
+  text-decoration: none;
+  padding: 0.5rem;
+  border-radius: var(--border-radius);
+  transition: background-color 0.2s ease;
+}
+
+.about-link:hover {
+  background-color: var(--background-light);
+}
+
+.about-link i {
+  font-size: 1.25rem;
+}
+
+.version-info {
+  color: var(--gray-600);
+  font-size: 0.875rem;
+}
