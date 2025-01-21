@@ -49,40 +49,6 @@ export class LMStudioProvider extends KeyedProvider implements LLMProvider {
     }
   }
 
-  private async loadState(): Promise<void> {
-    try {
-      const config = await this.loadProviderState('lmstudio');
-      if (config) {
-        this.endpoint = config.endpoint || this.defaultEndpoint;
-        this.currentModel = config.model || this.defaultModel;
-        await this.logger.debug('LM Studio provider state loaded', {
-          endpoint: this.endpoint,
-          currentModel: this.currentModel,
-          key: this.key
-        });
-      }
-    } catch (error) {
-      await this.logger.error('Failed to load LM Studio provider state', { error });
-    }
-  }
-
-  private async saveState(): Promise<void> {
-    try {
-      const config = {
-        endpoint: this.endpoint,
-        model: this.currentModel
-      };
-      await this.saveProviderState('lmstudio', config);
-      await this.logger.debug('LM Studio provider state saved', {
-        endpoint: this.endpoint,
-        currentModel: this.currentModel,
-        key: this.key
-      });
-    } catch (error) {
-      await this.logger.error('Failed to save LM Studio provider state', { error });
-    }
-  }
-
   private getEndpointUrl(path: string): string {
     if (!this.endpoint) {
       throw new Error('Endpoint not configured');
@@ -255,42 +221,30 @@ export class LMStudioProvider extends KeyedProvider implements LLMProvider {
     }
   }
 
-  getCurrentModel(): string {
-    return this.currentModel;
-  }
-
-  setModel(model: string): void {
-    this.currentModel = model;
-    this.logger.debug('LM Studio model set', { model });
-    this.saveState();
-  }
-
-  validateEndpoint(endpoint: string): boolean {
-    return this.ENDPOINT_PATTERN.test(endpoint);
-  }
-
-  setEndpoint(endpoint: string): void {
-    if (!this.validateEndpoint(endpoint)) {
-      throw new Error('Invalid endpoint URL format');
+  async configure(config: { model?: string; endpoint?: string }): Promise<void> {
+    if (config.model) {
+      this.validateModel(config.model, this.availableModels);
+      this.currentModel = config.model;
     }
-    this.endpoint = endpoint;
-    this.logger.debug('LM Studio endpoint set', { endpoint });
-    this.saveState();
+
+    if (config.endpoint) {
+      if (!this.validateEndpoint(config.endpoint)) {
+        throw new Error('Invalid endpoint URL format. Please provide a valid HTTP/HTTPS URL.');
+      }
+      this.endpoint = config.endpoint;
+    }
+
+    await this.logger.debug('LM Studio provider configured', {
+      model: this.currentModel,
+      endpoint: this.endpoint
+    });
+  }
+
+  private validateEndpoint(endpoint: string): boolean {
+    return this.ENDPOINT_PATTERN.test(endpoint);
   }
 
   validateApiKey(apiKey: string): boolean {
     return true; // LM Studio doesn't use API keys
-  }
-
-  configure(config: { apiKey?: string; model?: string; endpoint?: string }): void {
-    if (config.model) {
-      this.currentModel = config.model;
-    }
-    if (config.endpoint) {
-      if (!this.validateEndpoint(config.endpoint)) {
-        throw new Error('Invalid endpoint URL format');
-      }
-      this.endpoint = config.endpoint;
-    }
   }
 }

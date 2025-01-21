@@ -10,6 +10,5 @@ export abstract class KeyedProvider extends BaseLLMProvider implements LLMProvid
     abstract test(apiKey?: string, endpoint?: string): Promise<void>;
     abstract complete(prompt: string, options?: any): Promise<any>;
     abstract completeStream(prompt: string, options?: any): AsyncGenerator<any>;
-    abstract getCurrentModel(): string;
-    abstract configure(config: { apiKey?: string; model?: string; endpoint?: string }): void;
+    abstract configure(config: { apiKey?: string; model?: string; endpoint?: string }): Promise<void>;
 }

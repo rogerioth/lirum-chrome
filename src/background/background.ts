@@ -108,7 +108,6 @@ async function processContent(
             config: {
                 hasApiKey: Boolean(providerConfig.apiKey),
                 hasEndpoint: Boolean(providerConfig.endpoint),
-                model: providerConfig.model,
                 endpoint: providerConfig.endpoint
             }
         });
@@ -153,7 +152,6 @@ async function processContent(
                 requestId,
                 provider,
                 prompt,
-                model: llmProvider.getCurrentModel(),
                 options: {
                     temperature: 0.7,
                     maxTokens: 1000,
@@ -168,13 +166,6 @@ async function processContent(
                 let chunkCount = 0;
 
                 const attemptStream = async () => {
-                    await logger.debug('Starting stream attempt', {
-                        requestId,
-                        provider,
-                        model: llmProvider.getCurrentModel(),
-                        attempt: 1
-                    });
-
                     // For Ollama, verify the endpoint is responding before streaming
                     if (provider === 'ollama') {
                         try {
@@ -203,92 +194,64 @@ async function processContent(
                         stream: true
                     });
 
-                    for await (const chunk of stream) {
-                        chunkCount++;
-                        
-                        await logger.debug('Stream chunk received', {
-                            requestId,
-                            provider,
-                            chunkNumber: chunkCount,
-                            hasContent: Boolean(chunk?.content),
-                            isDone: Boolean(chunk?.done),
-                            chunkContent: chunk?.content?.slice(0, 50)
+                    try {
+                        for await (const chunk of stream) {
+                            chunkCount++;
+                            const content = chunk?.content || '';
+                            fullContent += content;
+                            hasReceivedContent = true;
+
+                            port.postMessage({
+                                type: 'STREAM_CHUNK',
+                                content: content,
+                                done: false
+                            });
+                        }
+
+                        // Send final message
+                        port.postMessage({
+                            type: 'STREAM_CHUNK',
+                            content: '',
+                            done: true
                         });
 
-                        if (!chunk) continue;
+                        await logger.info('Streaming completed', {
+                            requestId,
+                            provider,
+                            chunkCount,
+                            contentLength: fullContent.length
+                        });
+                    } catch (error) {
+                        await logger.error('Stream error', {
+                            requestId,
+                            provider,
+                            error: error instanceof Error ? error.message : String(error),
+                            chunkCount,
+                            hasReceivedContent
+                        });
 
-                        // Send content chunk if available
-                        if (chunk.content) {
-                            hasReceivedContent = true;
-                            fullContent += chunk.content;
-                            port.postMessage({ 
-                                type: 'STREAM_CHUNK', 
-                                content: chunk.content, 
-                                done: false 
-                            });
-
-                            if (fullContent.length % 500 === 0) {
-                                await logger.debug('Streaming progress', {
-                                    requestId,
-                                    provider,
-                                    contentLength: fullContent.length,
-                                    chunkCount
-                                });
-                            }
-                        }
-
-                        // If this is the final chunk, send completion
-                        if (chunk.done) {
-                            await logger.debug('Stream completed', {
-                                requestId,
-                                provider,
-                                hasReceivedContent,
-                                totalChunks: chunkCount,
-                                finalContentLength: fullContent.length
-                            });
-
-                            port.postMessage({ 
-                                type: 'STREAM_CHUNK', 
-                                content: '', 
-                                done: true 
-                            });
-                            return { content: fullContent };
-                        }
+                        port.postMessage({
+                            type: 'STREAM_ERROR',
+                            error: error instanceof Error ? error.message : String(error)
+                        });
                     }
                 };
 
-                try {
-                    const content = await attemptStream();
-                    
-                    await logger.info('Stream completed successfully', {
+                // Start streaming
+                attemptStream().catch(async error => {
+                    await logger.error('Stream attempt failed', {
                         requestId,
                         provider,
-                        responseLength: content?.content?.length ?? 0,
-                        hasContent: Boolean(content?.content),
-                        totalChunks: chunkCount
+                        error: error instanceof Error ? error.message : String(error)
                     });
 
-                    if (!content?.content) {
-                        throw new Error(`Stream completed but no content was received after ${chunkCount} chunks`);
-                    }
-
-                    return { content: content.content };
-                } catch (error) {
-                    const errorMessage = error instanceof Error ? error.message : String(error);
-                    await logger.error('Streaming response failed', {
-                        requestId,
-                        provider,
-                        error: errorMessage,
-                        stack: error instanceof Error ? error.stack : undefined,
-                        streamState: {
-                            hasContent: Boolean(fullContent),
-                            contentLength: fullContent.length,
-                            totalChunks: chunkCount
-                        }
+                    port.postMessage({
+                        type: 'STREAM_ERROR',
+                        error: error instanceof Error ? error.message : String(error)
                     });
-                    port.postMessage({ type: 'STREAM_ERROR', error: errorMessage });
-                    throw error;
-                }
+                });
+
+                return { content: 'Streaming started' };
             } else {
                 // Handle non-streaming response
                 const response = await llmProvider.complete(prompt, {
@@ -303,9 +266,7 @@ async function processContent(
                 await logger.info('Provider response received', {
                     requestId,
                     provider,
-                    responseLength: response.content.length,
-                    model: response.model,
-                    usage: response.usage
+                    responseLength: response.content.length
                 });
 
                 return { content: response.content };

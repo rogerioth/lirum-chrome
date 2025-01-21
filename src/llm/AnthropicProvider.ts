@@ -224,8 +224,31 @@ export class AnthropicProvider extends KeyedProvider implements LLMProvider {
     }
   }
 
-  getCurrentModel(): string {
-    return this.currentModel;
+  async configure(config: { apiKey?: string; model?: string; endpoint?: string }): Promise<void> {
+    if (config.apiKey) {
+      if (!this.validateApiKey(config.apiKey)) {
+        throw new Error('Invalid API key format. Key should be at least 5 characters long.');
+      }
+      this.apiKey = config.apiKey;
+    }
+
+    if (config.model) {
+      this.validateModel(config.model, this.availableModels);
+      this.currentModel = config.model;
+    }
+
+    if (config.endpoint) {
+      if (!this.validateEndpoint(config.endpoint)) {
+        throw new Error('Invalid endpoint URL format');
+      }
+      this.endpoint = config.endpoint;
+    }
+
+    await this.logger.debug('Anthropic provider configured', {
+      hasKey: !!this.apiKey,
+      model: this.currentModel,
+      endpoint: this.endpoint
+    });
   }
 
   private validateApiKey(apiKey: string): boolean {
@@ -234,26 +257,5 @@ export class AnthropicProvider extends KeyedProvider implements LLMProvider {
 
   private validateEndpoint(endpoint: string): boolean {
     return this.ENDPOINT_PATTERN.test(endpoint);
-  }
-
-  configure(config: { apiKey?: string; model?: string; endpoint?: string }): void {
-    if (config.apiKey) {
-      if (!this.validateApiKey(config.apiKey)) {
-        throw new Error('Invalid API key format');
-      }
-      this.apiKey = config.apiKey;
-    }
-    if (config.model) {
-      if (!this.availableModels.includes(config.model)) {
-        throw new Error(`Invalid model. Available models: ${this.availableModels.join(', ')}`);
-      }
-      this.currentModel = config.model;
-    }
-    if (config.endpoint) {
-      if (!this.validateEndpoint(config.endpoint)) {
-        throw new Error('Invalid endpoint URL format');
-      }
-      this.endpoint = config.endpoint;
-    }
   }
 }

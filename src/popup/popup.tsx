@@ -45,14 +45,13 @@ interface PopupState {
     isInputExpanded: boolean;
     streamingPort: chrome.runtime.Port | null;
     isProcessing: boolean;
+    noProvidersConfigured: boolean;
 }
 
-// Add a new class name helper function at the top level
 const classNames = (...classes: (string | boolean | undefined)[]) => {
     return classes.filter(Boolean).join(' ');
 };
 
-// Add NoProvidersMessage component after the PopupState interface
 const NoProvidersMessage: React.FC = () => {
     const handleSettings = () => {
         StorageManager.getInstance().openOptionsPage();
@@ -79,7 +78,7 @@ const NoProvidersMessage: React.FC = () => {
     );
 };
 
-const Popup: React.FC = () => {
+export const Popup: React.FC = () => {
     const logger = Logger.getInstance();
     const storageManager = StorageManager.getInstance();
     const [state, setState] = useState<PopupState>({
@@ -96,28 +95,20 @@ const Popup: React.FC = () => {
         isChromeUrl: false,
         isInputExpanded: false,
         streamingPort: null,
-        isProcessing: false
+        isProcessing: false,
+        noProvidersConfigured: false
     });
 
-    // Add a ref to track the response container for auto-scrolling
     const responseRef = useRef<HTMLDivElement>(null);
-
-    // Add effect to auto-scroll as content streams in
-    useEffect(() => {
-        if (responseRef.current && state.response) {
-            responseRef.current.scrollTop = responseRef.current.scrollHeight;
-        }
-    }, [state.response]);
 
     const handleChromeUrl = async () => {
         const tab = await storageManager.getCurrentTab();
-        return tab?.url?.startsWith('chrome://');
+        return tab?.url?.startsWith('chrome://') || false;
     };
 
     useEffect(() => {
         const initialize = async () => {
             try {
-                // Check if we're on a chrome:// URL
                 const isChromeUrl = await handleChromeUrl();
                 if (isChromeUrl) {
                     setState(prev => ({
@@ -139,7 +130,6 @@ const Popup: React.FC = () => {
                     storageManager.listCommands()
                 ]);
 
-                // Filter valid providers
                 const validProviders = providers.filter(provider => {
                     const isValid = (provider.apiKey || provider.endpoint) && 
                                  provider.type && 
@@ -159,7 +149,6 @@ const Popup: React.FC = () => {
                     throw new Error('No valid providers configured');
                 }
 
-                // Initialize first provider
                 const firstProvider = validProviders[0];
                 const initResult = await storageManager.sendRuntimeMessage({
                     type: 'INITIALIZE_PROVIDER',
@@ -175,13 +164,11 @@ const Popup: React.FC = () => {
                     throw new Error(`Provider initialization failed: ${initResult.error}`);
                 }
 
-                // Get page content
                 const tab = await storageManager.getCurrentTab();
                 if (!tab?.id) {
                     throw new Error('No active tab found');
                 }
 
-                // Try to get content first, if it fails then inject the script
                 try {
                     const contentResponse = await storageManager.sendMessageToTab(tab.id, { 
                         type: 'GET_PAGE_CONTENT' 
@@ -191,13 +178,10 @@ const Popup: React.FC = () => {
                 } catch (error) {
                     logger.debug('Content script not ready, injecting...', { error });
                     
-                    // Inject content script
                     await storageManager.executeScriptInTab(tab.id, ['content/content.js']);
 
-                    // Wait for script to initialize
                     await new Promise(resolve => setTimeout(resolve, 500));
 
-                    // Try getting content again
                     try {
                         const contentResponse = await storageManager.sendMessageToTab(tab.id, { 
                             type: 'GET_PAGE_CONTENT' 
@@ -209,14 +193,14 @@ const Popup: React.FC = () => {
                     }
                 }
             } catch (error) {
-                const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-                logger.error('Initialization failed', { error: errorMessage });
+                const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
                 setState(prev => ({
                     ...prev,
                     isInitializing: false,
                     error: errorMessage,
                     isChromeUrl: false,
-                    isInputExpanded: false
+                    isInputExpanded: false,
+                    noProvidersConfigured: errorMessage === 'No valid providers configured'
                 }));
             }
         };
@@ -245,12 +229,19 @@ const Popup: React.FC = () => {
                 isChromeUrl: false,
                 isInputExpanded: false,
                 streamingPort: null,
-                isProcessing: false
+                isProcessing: false,
+                noProvidersConfigured: false
             });
         };
 
         initialize();
     }, []);
+
+    useEffect(() => {
+        if (responseRef.current) {
+            responseRef.current.scrollTop = responseRef.current.scrollHeight;
+        }
+    }, [state.responseHtml]);
 
     const handleProcess = async () => {
         if (!state.content || !state.selectedProviderId) return;
@@ -354,11 +345,32 @@ const Popup: React.FC = () => {
         storageManager.openOptionsPage();
     };
 
+    const handleExpand = async () => {
+        if (!state.responseHtml) return;
+        
+        // Generate a unique ID for this result
+        const resultId = `result_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+        
+        // Store the content in chrome.storage.local
+        await chrome.storage.local.set({
+            [`lirum_${resultId}`]: {
+                content: state.responseHtml,
+                timestamp: Date.now()
+            }
+        });
+        
+        // Open result page with just the ID
+        const resultUrl = chrome.runtime.getURL(`result/result.html?id=${resultId}`);
+        await chrome.tabs.create({ url: resultUrl });
+    };
+
     const toggleInput = () => {
         setState(prev => ({ ...prev, isInputExpanded: !prev.isInputExpanded }));
     };
 
-    // Add cleanup on unmount
+    // Check if we're in fullpage mode
+    const isFullPage = new URLSearchParams(window.location.search).get('mode') === 'fullpage';
+
     useEffect(() => {
         return () => {
             if (state.streamingPort) {
@@ -367,9 +379,18 @@ const Popup: React.FC = () => {
         };
     }, [state.streamingPort]);
 
+    useEffect(() => {
+        if (isFullPage) {
+            document.body.classList.add('fullpage-mode');
+        }
+        return () => {
+            document.body.classList.remove('fullpage-mode');
+        };
+    }, [isFullPage]);
+
     if (state.isInitializing) {
         return (
-            <div className="popup-container">
+            <div className={classNames('popup-container', isFullPage && 'fullpage')}>
                 <div className="loading-container">
                     <div className="loading-spinner"></div>
                 </div>
@@ -379,13 +400,29 @@ const Popup: React.FC = () => {
 
     if (state.isChromeUrl) {
         return (
-            <div className="popup-container">
+            <div className={classNames('popup-container', isFullPage && 'fullpage')}>
                 <div className="header-section">
                     <div className="header-icon">
                         <img src="../assets/icon128.png" alt="Lirum Logo" />
                     </div>
                     <div className="header-title">
                         <h1>Lirum</h1>
+                    </div>
+                    <div className="header-actions">
+                        {!isFullPage && (
+                            <button 
+                                className="icon-button" 
+                                onClick={handleExpand} 
+                                title="Open in new tab">
+                                <i className="fa-solid fa-expand"></i>
+                            </button>
+                        )}
+                        <button 
+                            className="icon-button" 
+                            onClick={handleSettings} 
+                            title="Settings">
+                            <i className="fa-solid fa-gear"></i>
+                        </button>
                     </div>
                 </div>
                 
@@ -399,54 +436,16 @@ const Popup: React.FC = () => {
                         </div>
                         <div className="step">
                             <span className="step-number">2</span>
-                            <p>(Optional) Select some text on the page</p>
-                        </div>
-                        <div className="step">
-                            <span className="step-number">3</span>
-                            <p>Open the Lirum extension and choose your action!</p>
+                            <p>Click the Lirum icon to analyze the content</p>
                         </div>
                     </div>
-
-                    <div className="button-group">
-                        <button
-                            onClick={handleSettings}
-                            className="secondary"
-                        >
-                            Configure Settings
-                        </button>
-                    </div>
-                </div>
-            </div>
-        );
-    }
-
-    if (state.error === 'No valid providers configured') {
-        return (
-            <NoProvidersMessage />
-        );
-    }
-
-    if (state.error) {
-        return (
-            <div className="popup-container">
-                <div className="header-section">
-                    <div className="header-icon">
-                        <img src="../assets/icon128.png" alt="Lirum Logo" />
-                    </div>
-                    <div className="header-title">
-                        <h1>Lirum</h1>
-                    </div>
-                </div>
-                <div className="error-message">
-                    <i className="fa-solid fa-exclamation-circle"></i>
-                    <p>{state.error}</p>
                 </div>
             </div>
         );
     }
 
     return (
-        <div className="popup-container">
+        <div className={classNames('popup-container', isFullPage && 'fullpage')}>
             <div className="header-section">
                 <div className="header-icon">
                     <img src="../assets/icon128.png" alt="Lirum Logo" />
@@ -454,103 +453,131 @@ const Popup: React.FC = () => {
                 <div className="header-title">
                     <h1>Lirum</h1>
                 </div>
-            </div>
-
-            <div className="controls">
-                <select 
-                    value={state.selectedProviderId} 
-                    onChange={e => setState(prev => ({ ...prev, selectedProviderId: e.target.value }))}
-                    disabled={state.isLoading}
-                >
-                    <option value="">Select Provider</option>
-                    {state.providers.map(provider => (
-                        <option key={provider.providerId} value={provider.providerId}>
-                            {provider.name}
-                        </option>
-                    ))}
-                </select>
-
-                <select
-                    className="command-select"
-                    value={state.command}
-                    onChange={e => setState(prev => ({ ...prev, command: e.target.value }))}
-                    disabled={state.isLoading}
-                >
-                    {state.providers.length > 0 && state.commands.map(command => (
-                        <option key={command.name} value={command.name}>
-                            {command.name}
-                        </option>
-                    ))}
-                </select>
-            </div>
-
-            {state.content && (
-                <div className="preview">
+                <div className="header-actions">
+                    {!isFullPage && (
+                        <button 
+                            className="icon-button" 
+                            onClick={handleExpand} 
+                            title="Open in new tab">
+                            <i className="fa-solid fa-expand"></i>
+                        </button>
+                    )}
                     <button 
-                        className="expand-input"
-                        onClick={toggleInput}
-                        aria-expanded={state.isInputExpanded}
-                    >
-                        <span className="expand-icon">{state.isInputExpanded ? '▼' : '▶'}</span>
-                        Input
+                        className="icon-button" 
+                        onClick={handleSettings} 
+                        title="Settings">
+                        <i className="fa-solid fa-gear"></i>
                     </button>
-                    {state.isInputExpanded && (
-                        <div className="input-content">
-                            <p>{state.content}</p>
+                </div>
+            </div>
+
+            {state.noProvidersConfigured ? (
+                <NoProvidersMessage />
+            ) : (
+                <>
+                    <div className="controls">
+                        <select 
+                            value={state.selectedProviderId} 
+                            onChange={e => setState(prev => ({ ...prev, selectedProviderId: e.target.value }))}
+                            disabled={state.isLoading}
+                        >
+                            <option value="">Select Provider</option>
+                            {state.providers.map(provider => (
+                                <option key={provider.providerId} value={provider.providerId}>
+                                    {provider.name}
+                                </option>
+                            ))}
+                        </select>
+
+                        <select
+                            className="command-select"
+                            value={state.command}
+                            onChange={e => setState(prev => ({ ...prev, command: e.target.value }))}
+                            disabled={state.isLoading}
+                        >
+                            {state.providers.length > 0 && state.commands.map(command => (
+                                <option key={command.name} value={command.name}>
+                                    {command.name}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
+
+                    {state.content && (
+                        <div className="preview">
+                            <button 
+                                className="expand-input"
+                                onClick={toggleInput}
+                                aria-expanded={state.isInputExpanded}
+                            >
+                                <span className="expand-icon">{state.isInputExpanded ? '▼' : '▶'}</span>
+                                Input
+                            </button>
+                            {state.isInputExpanded && (
+                                <div className="input-content">
+                                    <p>{state.content}</p>
+                                </div>
+                            )}
                         </div>
                     )}
-                </div>
+
+                    <div className="response">
+                        <div className="response-header">
+                            <h2>Output</h2>
+                            {state.isLoading && (
+                                <div className="streaming-indicator">
+                                    <div className="loading-dots"></div>
+                                    <span>Streaming...</span>
+                                </div>
+                            )}
+                            {!state.isLoading && state.responseHtml && (
+                                <button 
+                                    className="icon-button" 
+                                    onClick={handleExpand} 
+                                    title="Open in new tab">
+                                    <i className="fa-solid fa-expand"></i>
+                                </button>
+                            )}
+                        </div>
+                        {state.isLoading && <div className="loading-bar" />}
+                        <div 
+                            ref={responseRef}
+                            className={classNames(
+                                'markdown-content',
+                                state.isLoading ? 'streaming' : 'done'
+                            )}
+                            dangerouslySetInnerHTML={{ 
+                                __html: state.responseHtml || ''
+                            }}
+                            style={{
+                                minHeight: '60px',
+                                opacity: 1,
+                                visibility: 'visible',
+                                display: 'block'
+                            }}
+                        />
+                    </div>
+
+                    <div className="button-group">
+                        <button
+                            onClick={handleProcess}
+                            disabled={!state.content || state.isLoading}
+                        >
+                            Process
+                        </button>
+                        <button
+                            onClick={handleSettings}
+                            disabled={state.isLoading}
+                        >
+                            Settings
+                        </button>
+                    </div>
+                </>
             )}
-
-            {/* Response container - always visible */}
-            <div className="response">
-                <div className="response-header">
-                    <h2>Output</h2>
-                    {state.isLoading && (
-                        <div className="streaming-indicator">
-                            <div className="loading-dots"></div>
-                            <span>Streaming...</span>
-                        </div>
-                    )}
-                </div>
-                {state.isLoading && <div className="loading-bar" />}
-                <div 
-                    ref={responseRef}
-                    className={classNames(
-                        'markdown-content',
-                        state.isLoading ? 'streaming' : 'done'
-                    )}
-                    dangerouslySetInnerHTML={{ 
-                        __html: state.responseHtml || ''
-                    }}
-                    style={{
-                        minHeight: '60px',
-                        opacity: 1,
-                        visibility: 'visible',
-                        display: 'block'
-                    }}
-                />
-            </div>
-
-            <div className="button-group">
-                <button
-                    onClick={handleProcess}
-                    disabled={!state.content || state.isLoading}
-                >
-                    Process
-                </button>
-                <button
-                    onClick={handleSettings}
-                    disabled={state.isLoading}
-                >
-                    Settings
-                </button>
-            </div>
         </div>
     );
 };
 
-// Initialize the popup
 const container = document.getElementById('root');
 if (!container) {
     throw new Error('Root element not found');

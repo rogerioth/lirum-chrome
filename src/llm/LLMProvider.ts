@@ -37,6 +37,5 @@ export interface LLMProvider {
   test(apiKey?: string, endpoint?: string): Promise<void>;
   complete(prompt: string, options?: LLMOptions): Promise<LLMResponse>;
   completeStream(prompt: string, options?: LLMOptions): AsyncGenerator<LLMStreamResponse>;
-  getCurrentModel(): string;
-  configure(config: { apiKey?: string; model?: string; endpoint?: string }): void;
+  configure(config: { apiKey?: string; model?: string; endpoint?: string }): Promise<void>;
 }

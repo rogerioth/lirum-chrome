@@ -255,23 +255,26 @@ export class OllamaProvider extends KeyedProvider implements LLMProvider {
         }
     }
 
-    getCurrentModel(): string {
-        return this.currentModel;
+    async configure(config: { model?: string; endpoint?: string }): Promise<void> {
+        if (config.model) {
+            this.validateModel(config.model, this.availableModels);
+            this.currentModel = config.model;
+        }
+
+        if (config.endpoint) {
+            if (!this.validateEndpoint(config.endpoint)) {
+                throw new Error('Invalid endpoint URL format. Please provide a valid HTTP/HTTPS URL.');
+            }
+            this.endpoint = config.endpoint;
+        }
+
+        await this.logger.debug('Ollama provider configured', {
+            model: this.currentModel,
+            endpoint: this.endpoint
+        });
     }
 
     private validateEndpoint(endpoint: string): boolean {
         return this.ENDPOINT_PATTERN.test(endpoint);
-    }
-
-    configure(config: { apiKey?: string; model?: string; endpoint?: string }): void {
-        if (config.model) {
-            this.currentModel = config.model;
-        }
-        if (config.endpoint) {
-            if (!this.validateEndpoint(config.endpoint)) {
-                throw new Error('Invalid endpoint URL format');
-            }
-            this.endpoint = config.endpoint;
-        }
     }
 }

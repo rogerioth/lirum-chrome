@@ -13,6 +13,7 @@ export default {
     popup: ['./src/popup/popup.tsx', './src/styles/popup.css'],
     background: './src/background/background.ts',
     content: './src/content/content.ts',
+    result: './src/result/result.tsx'
   },
   output: {
     path: path.resolve(__dirname, 'dist'),
@@ -63,8 +64,9 @@ export default {
         { from: 'src/manifest.json', to: 'manifest.json' },
         { from: 'src/options/options.html', to: 'options/options.html' },
         { from: 'src/popup/popup.html', to: 'popup/popup.html' },
+        { from: 'src/result/result.html', to: 'result/result.html' },
         { from: 'src/assets', to: 'assets', noErrorOnMissing: true }
       ],
     }),
   ],
-}; 
+};
