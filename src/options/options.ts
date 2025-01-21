@@ -225,6 +225,14 @@ class OptionsManager {
             this.hideProviderModal();
         });
 
+        document.getElementById('cancel-command')?.addEventListener('click', () => {
+            this.hideCommandModal();
+        });
+
+        document.querySelector('#command-modal .close-button')?.addEventListener('click', () => {
+            this.hideCommandModal();
+        });
+
         document.getElementById('test-provider')?.addEventListener('click', () => {
             this.testProvider();
         });
