@@ -10,7 +10,9 @@ PROJECT_ROOT="$SCRIPT_DIR/../.."
 npm run build
 
 # Create a temporary user data directory if it doesn't exist
-mkdir -p "$PROJECT_ROOT/temp-chrome-data"
+if [ ! -d "$PROJECT_ROOT/temp-chrome-data" ]; then
+    mkdir -p "$PROJECT_ROOT/temp-chrome-data"
+fi
 
 # Check if Chrome exists in common locations
 CHROME_PATH=""
@@ -25,10 +27,19 @@ if [ -z "$CHROME_PATH" ]; then
     exit 1
 fi
 
+# Kill any existing Chrome instances using our temp directory
+pkill -f "temp-chrome-data"
+
 # Launch Chrome with the extension
 echo "Launching Chrome with the extension..."
 "$CHROME_PATH" \
     --load-extension="$PROJECT_ROOT/dist" \
     --user-data-dir="$PROJECT_ROOT/temp-chrome-data" \
     --no-first-run \
-    --no-default-browser-check 
+    --no-default-browser-check \
+    --disable-gpu \
+    --disable-software-rasterizer \
+    --disable-dev-shm-usage \
+    --no-sandbox \
+    --test-type \
+    --ignore-certificate-errors

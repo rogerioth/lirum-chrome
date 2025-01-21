@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { LLMProviderFactory, ProviderType } from '../llm/LLMProviderFactory';
 import { Logger } from '../utils/Logger';
 import { markdownToHtml } from '../utils/markdown';
 import '../styles/popup.css';
 import '../styles/markdown.css';
+import { StorageManager } from '../utils/StorageManager';
 
 interface Provider {
     type: ProviderType;
@@ -12,128 +13,124 @@ interface Provider {
     apiKey?: string;
     endpoint?: string;
     model?: string;
+    providerId: string;
 }
+
+interface Command {
+    name: string;
+    icon: string;
+    prompt: string;
+}
+
+const DEFAULT_COMMANDS: Command[] = [
+    { name: 'Summarize', icon: 'fa-solid fa-compress', prompt: 'Please provide a concise summary of the following content:' },
+    { name: 'Paraphrase', icon: 'fa-solid fa-pen', prompt: 'Please rewrite the following content in different words while maintaining its meaning:' },
+    { name: 'Bullet Points', icon: 'fa-solid fa-list', prompt: 'Please convert the following content into clear, organized bullet points:' },
+    { name: 'Translate', icon: 'fa-solid fa-language', prompt: 'Please translate the following content to English (or specify target language):' },
+    { name: 'Analyze Tone', icon: 'fa-solid fa-face-smile', prompt: 'Please analyze the tone and emotional content of the following text:' }
+];
 
 interface PopupState {
     providers: Provider[];
-    selectedProvider: string;
+    selectedProviderId: string;
     command: string;
+    commands: Command[];
     isLoading: boolean;
+    isInitializing: boolean;
     error: string | null;
     content: string | null;
     response: string | null;
+    responseHtml: string;
     isChromeUrl: boolean;
     isInputExpanded: boolean;
+    streamingPort: chrome.runtime.Port | null;
+    isProcessing: boolean;
+    noProvidersConfigured: boolean;
 }
 
-const DEFAULT_COMMANDS = [
-    'Summarize',
-    'Paraphrase',
-    'Bullet Points',
-    'Translate',
-    'Analyze Tone'
-];
+const classNames = (...classes: (string | boolean | undefined)[]) => {
+    return classes.filter(Boolean).join(' ');
+};
 
-const Popup: React.FC = () => {
+const NoProvidersMessage: React.FC = () => {
+    const handleSettings = () => {
+        StorageManager.getInstance().openOptionsPage();
+    };
+
+    return (
+        <div className="no-providers-message">
+            <div className="welcome-icon">
+                <i className="fa-solid fa-wand-magic-sparkles fa-2x"></i>
+            </div>
+            <h2>Welcome to Lirum! 🎉</h2>
+            <p>
+                Let's get you started with your first AI provider! 🚀
+            </p>
+            <p>
+                Lirum supports various AI providers like OpenAI, Anthropic, and local models through Ollama. 
+                Click below to set up your preferred provider. ✨
+            </p>
+            <button className="primary-button" onClick={handleSettings}>
+                <i className="fa-solid fa-gear"></i>
+                Configure Provider
+            </button>
+        </div>
+    );
+};
+
+export const Popup: React.FC = () => {
     const logger = Logger.getInstance();
+    const storageManager = StorageManager.getInstance();
     const [state, setState] = useState<PopupState>({
         providers: [],
-        selectedProvider: '',
-        command: DEFAULT_COMMANDS[0],
-        isLoading: true,
+        selectedProviderId: '',
+        command: '',
+        commands: [],
+        isLoading: false,
+        isInitializing: true,
         error: null,
         content: null,
         response: null,
+        responseHtml: '',
         isChromeUrl: false,
-        isInputExpanded: false
+        isInputExpanded: false,
+        streamingPort: null,
+        isProcessing: false,
+        noProvidersConfigured: false
     });
 
+    const responseRef = useRef<HTMLDivElement>(null);
+
     const handleChromeUrl = async () => {
-        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        return tab.url?.startsWith('chrome://');
+        const tab = await storageManager.getCurrentTab();
+        return tab?.url?.startsWith('chrome://') || false;
     };
 
     useEffect(() => {
         const initialize = async () => {
             try {
-                // Check if we're on a chrome:// URL
                 const isChromeUrl = await handleChromeUrl();
                 if (isChromeUrl) {
                     setState(prev => ({
                         ...prev,
-                        isLoading: false,
+                        isInitializing: false,
                         error: null,
                         content: null,
                         response: null,
+                        responseHtml: '',
                         isChromeUrl: true,
-                        isInputExpanded: false
+                        isInputExpanded: false,
+                        isProcessing: false
                     }));
                     return;
                 }
 
-                // Load providers from both storage types
-                const [syncData, localData, providerConfigs] = await Promise.all([
-                    chrome.storage.sync.get('providers'),
-                    chrome.storage.local.get('providers'),
-                    chrome.storage.local.get(
-                        Object.values(LLMProviderFactory.getProviderTypes())
-                            .map(type => `${type}_provider_config`)
-                    )
+                const [providers, commands] = await Promise.all([
+                    storageManager.listProviders(),
+                    storageManager.listCommands()
                 ]);
 
-                // Start with sync providers
-                let allProviders = syncData.providers || [];
-
-                // Merge with local storage providers
-                if (localData.providers) {
-                    localData.providers.forEach(localProvider => {
-                        const existingIndex = allProviders.findIndex(p => p.type === localProvider.type);
-                        if (existingIndex !== -1) {
-                            allProviders[existingIndex] = {
-                                ...allProviders[existingIndex],
-                                ...localProvider
-                            };
-                        } else {
-                            allProviders.push(localProvider);
-                        }
-                    });
-                }
-
-                // Merge with provider-specific configs
-                Object.entries(providerConfigs).forEach(([key, config]) => {
-                    if (!config) return;
-                    const type = key.replace('_provider_config', '') as ProviderType;
-                    const existingIndex = allProviders.findIndex(p => p.type === type);
-                    
-                    if (existingIndex !== -1) {
-                        allProviders[existingIndex] = {
-                            ...allProviders[existingIndex],
-                            ...config,
-                            type,
-                            name: config.name || allProviders[existingIndex].name || LLMProviderFactory.getProviderName(type)
-                        };
-                    } else {
-                        allProviders.push({
-                            type,
-                            name: config.name || LLMProviderFactory.getProviderName(type),
-                            ...config
-                        });
-                    }
-                });
-                
-                if (!Array.isArray(allProviders) || allProviders.length === 0) {
-                    throw new Error('No providers configured');
-                }
-
-                // Log loaded providers (with redacted API keys)
-                const redactedProviders = allProviders.map(p => ({
-                    ...p,
-                    apiKey: p.apiKey ? `${p.apiKey.slice(0,2)}....${p.apiKey.slice(-2)}` : undefined
-                }));
-                logger.info('Popup providers loaded', { count: allProviders.length, providers: redactedProviders });
-
-                // Filter valid providers
-                const validProviders = allProviders.filter(provider => {
+                const validProviders = providers.filter(provider => {
                     const isValid = (provider.apiKey || provider.endpoint) && 
                                  provider.type && 
                                  Object.values(LLMProviderFactory.getProviderTypes()).includes(provider.type);
@@ -152,11 +149,8 @@ const Popup: React.FC = () => {
                     throw new Error('No valid providers configured');
                 }
 
-                logger.info('Valid providers filtered', { count: validProviders.length });
-
-                // Initialize first provider
                 const firstProvider = validProviders[0];
-                const initResult = await chrome.runtime.sendMessage({
+                const initResult = await storageManager.sendRuntimeMessage({
                     type: 'INITIALIZE_PROVIDER',
                     provider: firstProvider.type,
                     config: {
@@ -170,59 +164,52 @@ const Popup: React.FC = () => {
                     throw new Error(`Provider initialization failed: ${initResult.error}`);
                 }
 
-                // Get page content
-                const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+                const tab = await storageManager.getCurrentTab();
                 if (!tab?.id) {
                     throw new Error('No active tab found');
                 }
 
-                // Try to get content first, if it fails then inject the script
                 try {
-                    const contentResponse = await chrome.tabs.sendMessage(tab.id, { 
+                    const contentResponse = await storageManager.sendMessageToTab(tab.id, { 
                         type: 'GET_PAGE_CONTENT' 
                     });
                     
-                    handleContentResponse(contentResponse, validProviders, firstProvider.type);
+                    handleContentResponse(contentResponse, validProviders, firstProvider, commands);
                 } catch (error) {
                     logger.debug('Content script not ready, injecting...', { error });
                     
-                    // Inject content script
-                    await chrome.scripting.executeScript({
-                        target: { tabId: tab.id },
-                        files: ['content/content.js']
-                    });
+                    await storageManager.executeScriptInTab(tab.id, ['content/content.js']);
 
-                    // Wait for script to initialize
                     await new Promise(resolve => setTimeout(resolve, 500));
 
-                    // Try getting content again
                     try {
-                        const contentResponse = await chrome.tabs.sendMessage(tab.id, { 
+                        const contentResponse = await storageManager.sendMessageToTab(tab.id, { 
                             type: 'GET_PAGE_CONTENT' 
                         });
                         
-                        handleContentResponse(contentResponse, validProviders, firstProvider.type);
+                        handleContentResponse(contentResponse, validProviders, firstProvider, commands);
                     } catch (retryError) {
                         throw new Error('Failed to get page content after script injection');
                     }
                 }
             } catch (error) {
-                const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-                logger.error('Initialization failed', { error: errorMessage });
+                const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred';
                 setState(prev => ({
                     ...prev,
-                    isLoading: false,
+                    isInitializing: false,
                     error: errorMessage,
                     isChromeUrl: false,
-                    isInputExpanded: false
+                    isInputExpanded: false,
+                    noProvidersConfigured: errorMessage === 'No valid providers configured'
                 }));
             }
         };
 
         const handleContentResponse = (
             contentResponse: any, 
-            validProviders: any[], 
-            selectedProvider: string
+            validProviders: Provider[], 
+            firstProvider: Provider,
+            commands: Command[]
         ) => {
             if (contentResponse?.error) {
                 throw new Error(`Content extraction failed: ${contentResponse.error}`);
@@ -230,92 +217,213 @@ const Popup: React.FC = () => {
 
             setState({
                 providers: validProviders,
-                selectedProvider: selectedProvider,
-                command: DEFAULT_COMMANDS[0],
+                selectedProviderId: firstProvider.providerId,
+                command: commands[0]?.name || '',
+                commands: commands,
                 isLoading: false,
+                isInitializing: false,
                 error: null,
                 content: contentResponse.content,
                 response: null,
+                responseHtml: '',
                 isChromeUrl: false,
-                isInputExpanded: false
+                isInputExpanded: false,
+                streamingPort: null,
+                isProcessing: false,
+                noProvidersConfigured: false
             });
         };
 
         initialize();
     }, []);
 
+    useEffect(() => {
+        if (responseRef.current) {
+            responseRef.current.scrollTop = responseRef.current.scrollHeight;
+        }
+    }, [state.responseHtml]);
+
     const handleProcess = async () => {
-        if (!state.content || !state.selectedProvider) return;
+        if (!state.content || !state.selectedProviderId) return;
+
+        const selectedProvider = state.providers.find(p => p.providerId === state.selectedProviderId);
+        if (!selectedProvider) return;
 
         setState(prev => ({ 
             ...prev, 
             isLoading: true, 
             error: null, 
-            response: null, 
+            response: '', 
+            responseHtml: '',
             isChromeUrl: false,
-            isInputExpanded: false
+            isInputExpanded: false,
+            isProcessing: true
         }));
 
         try {
-            const response = await chrome.runtime.sendMessage({
-                type: 'PROCESS_CONTENT',
-                provider: state.selectedProvider,
-                command: state.command,
-                content: state.content,
-                title: document.title || ''
+            // Create a port for streaming
+            const port = storageManager.connectToRuntime('llm_stream');
+            
+            setState(prev => ({ ...prev, streamingPort: port }));
+
+            // Set up port message handlers
+            port.onMessage.addListener((message) => {
+                if (message.type === 'STREAM_CHUNK') {
+                    setState(prev => {
+                        // Only process if we're still streaming
+                        if (!prev.streamingPort) return prev;
+
+                        // Create new response by concatenating the new chunk
+                        const newResponse = (prev.response || '') + message.content;
+                        
+                        // Convert the entire response to HTML
+                        const newHtml = markdownToHtml(newResponse);
+                        
+                        // If this is the final chunk, complete the streaming
+                        if (message.done) {
+                            port.disconnect();
+                            return {
+                                ...prev,
+                                response: newResponse,
+                                responseHtml: newHtml,
+                                isLoading: false,
+                                streamingPort: null,
+                                isProcessing: false
+                            };
+                        }
+
+                        return {
+                            ...prev,
+                            response: newResponse,
+                            responseHtml: newHtml,
+                            isLoading: true
+                        };
+                    });
+                } else if (message.type === 'STREAM_ERROR') {
+                    setState(prev => {
+                        if (!prev.streamingPort) return prev;
+                        
+                        port.disconnect();
+                        return {
+                            ...prev,
+                            isLoading: false,
+                            error: message.error,
+                            streamingPort: null,
+                            isProcessing: false
+                        };
+                    });
+                }
             });
 
-            if (response?.error) {
-                throw new Error(response.error);
-            }
-
-            setState(prev => ({
-                ...prev,
-                isLoading: false,
-                response: response.content || '',
-                isChromeUrl: false,
-                isInputExpanded: false
-            }));
+            // Send the request through the port
+            port.postMessage({
+                type: 'PROCESS_CONTENT',
+                provider: selectedProvider.type,
+                config: {
+                    apiKey: selectedProvider.apiKey,
+                    endpoint: selectedProvider.endpoint,
+                    model: selectedProvider.model
+                },
+                providerId: selectedProvider.providerId,
+                command: state.command,
+                content: state.content,
+                title: document.title || '',
+                stream: true
+            });
 
         } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-            logger.error('Processing failed', { error: errorMessage });
             setState(prev => ({
                 ...prev,
                 isLoading: false,
-                error: errorMessage,
-                isChromeUrl: false,
-                isInputExpanded: false
+                error: error instanceof Error ? error.message : String(error),
+                isProcessing: false
             }));
         }
     };
 
     const handleSettings = () => {
-        chrome.runtime.openOptionsPage();
+        storageManager.openOptionsPage();
+    };
+
+    const handleExpand = async () => {
+        if (!state.responseHtml) return;
+        
+        // Generate a unique ID for this result
+        const resultId = `result_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+        
+        // Store the content in chrome.storage.local
+        await chrome.storage.local.set({
+            [`lirum_${resultId}`]: {
+                content: state.responseHtml,
+                timestamp: Date.now()
+            }
+        });
+        
+        // Open result page with just the ID
+        const resultUrl = chrome.runtime.getURL(`result/result.html?id=${resultId}`);
+        await chrome.tabs.create({ url: resultUrl });
     };
 
     const toggleInput = () => {
         setState(prev => ({ ...prev, isInputExpanded: !prev.isInputExpanded }));
     };
 
-    if (state.isLoading) {
+    // Check if we're in fullpage mode
+    const isFullPage = new URLSearchParams(window.location.search).get('mode') === 'fullpage';
+
+    useEffect(() => {
+        return () => {
+            if (state.streamingPort) {
+                state.streamingPort.disconnect();
+            }
+        };
+    }, [state.streamingPort]);
+
+    useEffect(() => {
+        if (isFullPage) {
+            document.body.classList.add('fullpage-mode');
+        }
+        return () => {
+            document.body.classList.remove('fullpage-mode');
+        };
+    }, [isFullPage]);
+
+    if (state.isInitializing) {
         return (
-            <div className="popup-container">
-                <div className="header">
-                    <img src="../assets/logo.png" alt="Lirum Logo" className="logo" />
-                    <h1>Lirum Chrome LLMs</h1>
+            <div className={classNames('popup-container', isFullPage && 'fullpage')}>
+                <div className="loading-container">
+                    <div className="loading-spinner"></div>
                 </div>
-                <div className="loading-bar" />
             </div>
         );
     }
 
     if (state.isChromeUrl) {
         return (
-            <div className="popup-container">
-                <div className="header">
-                    <img src="../assets/logo.png" alt="Lirum Logo" className="logo" />
-                    <h1>Welcome to Lirum</h1>
+            <div className={classNames('popup-container', isFullPage && 'fullpage')}>
+                <div className="header-section">
+                    <div className="header-icon">
+                        <img src="../assets/icon128.png" alt="Lirum Logo" />
+                    </div>
+                    <div className="header-title">
+                        <h1>Lirum</h1>
+                    </div>
+                    <div className="header-actions">
+                        {!isFullPage && (
+                            <button 
+                                className="icon-button" 
+                                onClick={handleExpand} 
+                                title="Open in new tab">
+                                <i className="fa-solid fa-expand"></i>
+                            </button>
+                        )}
+                        <button 
+                            className="icon-button" 
+                            onClick={handleSettings} 
+                            title="Settings">
+                            <i className="fa-solid fa-gear"></i>
+                        </button>
+                    </div>
                 </div>
                 
                 <div className="onboarding-message">
@@ -328,139 +436,148 @@ const Popup: React.FC = () => {
                         </div>
                         <div className="step">
                             <span className="step-number">2</span>
-                            <p>(Optional) Select some text on the page</p>
-                        </div>
-                        <div className="step">
-                            <span className="step-number">3</span>
-                            <p>Open the Lirum extension and choose your action!</p>
+                            <p>Click the Lirum icon to analyze the content</p>
                         </div>
                     </div>
-
-                    <div className="button-group">
-                        <button
-                            onClick={handleSettings}
-                            className="secondary"
-                        >
-                            Configure Settings
-                        </button>
-                    </div>
                 </div>
-            </div>
-        );
-    }
-
-    if (state.error) {
-        return (
-            <div className="popup-container">
-                <div className="header">
-                    <img src="../assets/logo.png" alt="Lirum Logo" className="logo" />
-                    <h1>Lirum Chrome LLMs</h1>
-                </div>
-                <div className="error-message">{state.error}</div>
             </div>
         );
     }
 
     return (
-        <div className="popup-container">
-            <div className="header">
-                <img src="../assets/logo.png" alt="Lirum Logo" className="logo" />
-                <h1>Lirum Chrome LLMs</h1>
-            </div>
-            
-            <div className="provider-section">
-                <select
-                    value={state.selectedProvider}
-                    onChange={(e) => setState({ 
-                        ...state, 
-                        selectedProvider: e.target.value, 
-                        isChromeUrl: false, 
-                        isInputExpanded: false 
-                    })}
-                    disabled={state.isLoading}
-                >
-                    {state.providers.map((provider) => (
-                        <option key={provider.type} value={provider.type}>
-                            {provider.name}
-                        </option>
-                    ))}
-                </select>
-            </div>
-
-            <div className="command-section">
-                <select
-                    value={state.command}
-                    onChange={(e) => setState({ 
-                        ...state, 
-                        command: e.target.value, 
-                        isChromeUrl: false, 
-                        isInputExpanded: false 
-                    })}
-                    disabled={state.isLoading}
-                >
-                    {DEFAULT_COMMANDS.map((cmd) => (
-                        <option key={cmd} value={cmd}>{cmd}</option>
-                    ))}
-                </select>
-            </div>
-
-            {state.isLoading && <div className="loading-bar" />}
-
-            <div className="preview-section">
-                {state.content && (
-                    <div className="preview">
+        <div className={classNames('popup-container', isFullPage && 'fullpage')}>
+            <div className="header-section">
+                <div className="header-icon">
+                    <img src="../assets/icon128.png" alt="Lirum Logo" />
+                </div>
+                <div className="header-title">
+                    <h1>Lirum</h1>
+                </div>
+                <div className="header-actions">
+                    {!isFullPage && (
                         <button 
-                            className="expand-input"
-                            onClick={toggleInput}
-                            aria-expanded={state.isInputExpanded}
-                        >
-                            <span className="expand-icon">{state.isInputExpanded ? '▼' : '▶'}</span>
-                            Input
+                            className="icon-button" 
+                            onClick={handleExpand} 
+                            title="Open in new tab">
+                            <i className="fa-solid fa-expand"></i>
                         </button>
-                        {state.isInputExpanded && (
-                            <div className="input-content">
-                                <p>{state.content}</p>
-                            </div>
-                        )}
+                    )}
+                    <button 
+                        className="icon-button" 
+                        onClick={handleSettings} 
+                        title="Settings">
+                        <i className="fa-solid fa-gear"></i>
+                    </button>
+                </div>
+            </div>
+
+            {state.noProvidersConfigured ? (
+                <NoProvidersMessage />
+            ) : (
+                <>
+                    <div className="controls">
+                        <select 
+                            value={state.selectedProviderId} 
+                            onChange={e => setState(prev => ({ ...prev, selectedProviderId: e.target.value }))}
+                            disabled={state.isLoading}
+                        >
+                            <option value="">Select Provider</option>
+                            {state.providers.map(provider => (
+                                <option key={provider.providerId} value={provider.providerId}>
+                                    {provider.name}
+                                </option>
+                            ))}
+                        </select>
+
+                        <select
+                            className="command-select"
+                            value={state.command}
+                            onChange={e => setState(prev => ({ ...prev, command: e.target.value }))}
+                            disabled={state.isLoading}
+                        >
+                            {state.providers.length > 0 && state.commands.map(command => (
+                                <option key={command.name} value={command.name}>
+                                    {command.name}
+                                </option>
+                            ))}
+                        </select>
                     </div>
-                )}
-                
-                {state.response && (
+
+                    {state.content && (
+                        <div className="preview">
+                            <button 
+                                className="expand-input"
+                                onClick={toggleInput}
+                                aria-expanded={state.isInputExpanded}
+                            >
+                                <span className="expand-icon">{state.isInputExpanded ? '▼' : '▶'}</span>
+                                Input
+                            </button>
+                            {state.isInputExpanded && (
+                                <div className="input-content">
+                                    <p>{state.content}</p>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
                     <div className="response">
-                        <h2>Output</h2>
+                        <div className="response-header">
+                            <h2>Output</h2>
+                            {state.isLoading && (
+                                <div className="streaming-indicator">
+                                    <div className="loading-dots"></div>
+                                    <span>Streaming...</span>
+                                </div>
+                            )}
+                            {!state.isLoading && state.responseHtml && (
+                                <button 
+                                    className="icon-button" 
+                                    onClick={handleExpand} 
+                                    title="Open in new tab">
+                                    <i className="fa-solid fa-expand"></i>
+                                </button>
+                            )}
+                        </div>
+                        {state.isLoading && <div className="loading-bar" />}
                         <div 
-                            className="markdown-content"
-                            dangerouslySetInnerHTML={{ __html: markdownToHtml(state.response) }}
+                            ref={responseRef}
+                            className={classNames(
+                                'markdown-content',
+                                state.isLoading ? 'streaming' : 'done'
+                            )}
+                            dangerouslySetInnerHTML={{ 
+                                __html: state.responseHtml || ''
+                            }}
+                            style={{
+                                minHeight: '60px',
+                                opacity: 1,
+                                visibility: 'visible',
+                                display: 'block'
+                            }}
                         />
                     </div>
-                )}
-            </div>
 
-            <div className="button-group">
-                <button
-                    onClick={handleProcess}
-                    disabled={!state.content || state.isLoading}
-                >
-                    Process
-                </button>
-                <button
-                    onClick={handleSettings}
-                    disabled={state.isLoading}
-                >
-                    Settings
-                </button>
-            </div>
-
-            {state.error && (
-                <div className="error-message">
-                    {state.error}
-                </div>
+                    <div className="button-group">
+                        <button
+                            onClick={handleProcess}
+                            disabled={!state.content || state.isLoading}
+                        >
+                            Process
+                        </button>
+                        <button
+                            onClick={handleSettings}
+                            disabled={state.isLoading}
+                        >
+                            Settings
+                        </button>
+                    </div>
+                </>
             )}
         </div>
     );
 };
 
-// Initialize the popup
 const container = document.getElementById('root');
 if (!container) {
     throw new Error('Root element not found');

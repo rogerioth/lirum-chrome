@@ -11,6 +11,11 @@ export interface LLMResponse {
   raw: any;
 }
 
+export interface LLMStreamResponse {
+  content: string;
+  done: boolean;
+}
+
 export interface LLMOptions {
   maxTokens?: number;
   temperature?: number;
@@ -18,6 +23,8 @@ export interface LLMOptions {
   frequencyPenalty?: number;
   presencePenalty?: number;
   stop?: string[];
+  stream?: boolean;
+  onToken?: (token: string) => void;
 }
 
 export interface LLMProvider {
@@ -25,12 +32,10 @@ export interface LLMProvider {
   defaultModel: string;
   availableModels: string[];
   defaultEndpoint?: string;
+  readonly key: string;  // Unique identifier for the provider instance
 
   test(apiKey?: string, endpoint?: string): Promise<void>;
   complete(prompt: string, options?: LLMOptions): Promise<LLMResponse>;
-  getCurrentModel(): string;
-  setModel(model: string): void;
-  validateApiKey?(apiKey: string): boolean;
-  validateEndpoint?(endpoint: string): boolean;
-  setEndpoint?(endpoint: string): void;
-} 
+  completeStream(prompt: string, options?: LLMOptions): AsyncGenerator<LLMStreamResponse>;
+  configure(config: { apiKey?: string; model?: string; endpoint?: string }): Promise<void>;
+}

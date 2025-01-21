@@ -8,6 +8,11 @@
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
 </head>
 <body>
+  <div class="titlebar">
+    <img src="../assets/icon128.png" alt="Lirum Logo" class="titlebar-logo">
+    <h1 class="titlebar-text">Lirum Settings</h1>
+  </div>
+  
   <div class="app-container">
     <!-- Sidebar -->
     <aside class="sidebar">
@@ -26,9 +31,15 @@
             </a>
           </li>
           <li class="nav-item">
-            <a href="#settings" class="nav-link">
+            <a href="#storage" class="nav-link">
+              <i class="nav-icon fa-solid fa-database"></i>
+              <span>Storage</span>
+            </a>
+          </li>
+          <li class="nav-item">
+            <a href="#logs" class="nav-link">
               <i class="nav-icon fa-solid fa-gear"></i>
-              <span>Settings</span>
+              <span>Logs</span>
             </a>
           </li>
         </ul>
@@ -107,10 +118,29 @@
         </div>
       </section>
 
-      <!-- Settings Section -->
-      <section id="settings" class="content-section">
+      <!-- Storage Section -->
+      <section id="storage" class="content-section">
         <div class="section-header">
-          <h1>Settings</h1>
+          <h1>Storage</h1>
+          <div class="header-actions">
+            <button id="refresh-storage" class="button secondary">
+              <i class="fa-solid fa-rotate"></i>
+              Refresh
+            </button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="storage-container">
+            <pre id="storage-output" class="storage-output"></pre>
+          </div>
+        </div>
+      </section>
+
+      <!-- Logs Section -->
+      <section id="logs" class="content-section">
+        <div class="section-header">
+          <h1>Logs</h1>
           <div class="header-actions">
             <button id="copy-logs" class="button secondary">
               <i class="fa-solid fa-clipboard"></i>
@@ -149,6 +179,12 @@
             <div id="logs-output" class="logs-output"></div>
           </div>
         </div>
+
+        <div class="settings-section">
+          <h3>Factory Reset</h3>
+          <p>Reset all settings to their default values. This will remove all providers and reset commands to defaults.</p>
+          <button id="factory-reset" class="danger">Factory Reset</button>
+        </div>
       </section>
     </main>
   </div>
@@ -161,7 +197,7 @@
           <i class="fa-solid fa-brain modal-icon"></i>
           <h2>Add Provider</h2>
         </div>
-        <button class="close-button">×</button>
+        <button class="close-button"><i class="fa-solid fa-xmark"></i></button>
       </div>
       <div class="modal-body">
         <div class="form-group">
@@ -211,7 +247,7 @@
           <i class="fa-solid fa-terminal modal-icon"></i>
           <h2 id="command-modal-title">Add Command</h2>
         </div>
-        <button class="close-button">×</button>
+        <button class="close-button"><i class="fa-solid fa-xmark"></i></button>
       </div>
       <div class="modal-body">
         <div class="form-group">
@@ -232,7 +268,7 @@
       </div>
       <div class="modal-footer">
         <button id="save-command" class="button primary">Save</button>
-        <button class="button secondary close-button">Cancel</button>
+        <button id="cancel-command" class="button secondary">Cancel</button>
       </div>
     </div>
   </div>
