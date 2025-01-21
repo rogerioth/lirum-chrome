@@ -166,6 +166,21 @@ class OptionsManager {
         // Initialize custom dropdowns
         this.initializeModelDropdown();
 
+        // Add keyboard event listeners for modals
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                const providerModal = document.getElementById('provider-modal') as HTMLElement;
+                const commandModal = document.getElementById('command-modal') as HTMLElement;
+                
+                if (providerModal?.style.display === 'flex') {
+                    this.hideProviderModal();
+                }
+                if (commandModal?.style.display === 'flex') {
+                    this.hideCommandModal();
+                }
+            }
+        });
+
         // Provider management
         document.getElementById('add-provider')?.addEventListener('click', () => {
             this.selectedProviderIndex = -1;
