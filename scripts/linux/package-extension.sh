@@ -1,0 +1,1 @@
+../macos/package-extension.sh
