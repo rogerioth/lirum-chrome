@@ -605,8 +605,8 @@ input:focus {
 
 /* Welcome section */
 .welcome-icon {
-    width: 128px;
-    height: 128px;
+    width: 64px;
+    height: 64px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -614,7 +614,7 @@ input:focus {
 }
 
 .welcome-icon i {
-    font-size: 128px;
+    font-size: 64px;
     color: var(--primary-color);
 }
 
