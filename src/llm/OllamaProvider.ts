@@ -1,7 +1,8 @@
-import { LLMProvider, LLMResponse, LLMOptions } from './LLMProvider';
+import { LLMProvider, LLMResponse, LLMOptions, LLMStreamResponse } from './LLMProvider';
 import { Logger } from '../utils/Logger';
+import { KeyedProvider } from './KeyedProvider';
 
-export class OllamaProvider implements LLMProvider {
+export class OllamaProvider extends KeyedProvider implements LLMProvider {
     name = 'Ollama';
     defaultModel = 'llama2';
     availableModels = [
@@ -17,32 +18,52 @@ export class OllamaProvider implements LLMProvider {
         'starling-lm'
     ];
     defaultEndpoint = 'http://localhost:11434';
-
-    private endpoint: string | null = null;
     private currentModel: string;
-    private readonly logger: Logger;
+    private endpoint: string;
+    private readonly API_URL = '/api/generate';
+    protected readonly logger: Logger;
     private readonly ENDPOINT_PATTERN = /^https?:\/\/[^\s/$.?#].[^\s]*$/i;
 
     constructor() {
+        super();
         this.currentModel = this.defaultModel;
+        this.endpoint = this.defaultEndpoint;
         this.logger = Logger.getInstance();
     }
 
     protected async fetchWithExtension(url: string, options: RequestInit): Promise<Response> {
         try {
-            const response = await fetch(url, options);
+            const response = await fetch(url, {
+                ...options,
+                // Add CORS mode and credentials
+                mode: 'cors',
+                credentials: 'omit'
+            });
+
             if (!response.ok) {
                 const error = await response.text();
+                await this.logger.error('Ollama request failed', {
+                    status: response.status,
+                    statusText: response.statusText,
+                    error,
+                    endpoint: this.endpoint
+                });
                 throw new Error(`HTTP error! status: ${response.status}, message: ${error}`);
             }
+
+            await this.logger.debug('Ollama request successful', {
+                status: response.status,
+                endpoint: this.endpoint
+            });
+
             return response;
         } catch (error) {
-            await this.logger.error('Ollama request failed', { 
+            await this.logger.error('Ollama network error', { 
                 url,
                 error: error instanceof Error ? error.message : String(error),
                 endpoint: this.endpoint 
             });
-            throw error;
+            throw new Error(`Failed to connect to Ollama endpoint: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -86,7 +107,7 @@ export class OllamaProvider implements LLMProvider {
         });
 
         try {
-            const response = await this.fetchWithExtension(`${this.endpoint}/api/generate`, {
+            const response = await this.fetchWithExtension(`${this.endpoint}${this.API_URL}`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -122,25 +143,138 @@ export class OllamaProvider implements LLMProvider {
         }
     }
 
-    getCurrentModel(): string {
-        return this.currentModel;
-    }
-
-    setModel(model: string): void {
-        // Allow any model name since Ollama supports custom models
-        this.currentModel = model;
-        this.logger.debug('Ollama model set', { model });
-    }
-
-    validateEndpoint(endpoint: string): boolean {
-        return this.ENDPOINT_PATTERN.test(endpoint);
-    }
-
-    setEndpoint(endpoint: string): void {
-        if (!this.validateEndpoint(endpoint)) {
-            throw new Error('Invalid endpoint URL format');
+    async *completeStream(prompt: string, options: LLMOptions = {}): AsyncGenerator<LLMStreamResponse> {
+        if (!this.endpoint) {
+            throw new Error('Endpoint not configured');
         }
-        this.endpoint = endpoint;
-        this.logger.debug('Ollama endpoint set', { endpoint });
+
+        const model = this.currentModel;
+        await this.logger.debug('Ollama streaming request config', { 
+            endpoint: this.endpoint,
+            model,
+            options
+        });
+
+        try {
+            const response = await this.fetchWithExtension(`${this.endpoint}${this.API_URL}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify({
+                    model,
+                    prompt,
+                    stream: true,
+                    temperature: options.temperature ?? 0.7,
+                    top_p: 1,
+                    max_tokens: options.maxTokens || 1000
+                })
+            });
+
+            if (!response.body) {
+                throw new Error('Response body is null');
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let hasReceivedContent = false;
+
+            try {
+                while (true) {
+                    const { done, value } = await reader.read();
+                    
+                    if (done) {
+                        if (!hasReceivedContent) {
+                            await this.logger.error('Stream completed without content', {
+                                model,
+                                endpoint: this.endpoint
+                            });
+                            throw new Error('Stream completed without receiving any content');
+                        }
+                        yield { content: '', done: true };
+                        break;
+                    }
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() || '';
+
+                    for (const line of lines) {
+                        const trimmedLine = line.trim();
+                        if (!trimmedLine) continue;
+
+                        try {
+                            const data = JSON.parse(trimmedLine);
+                            await this.logger.debug('Ollama stream chunk', {
+                                responseLength: data.response?.length || 0,
+                                done: data.done || false
+                            });
+
+                            if (data.response) {
+                                hasReceivedContent = true;
+                                yield {
+                                    content: data.response,
+                                    done: false
+                                };
+                            }
+
+                            if (data.done === true) {
+                                if (!hasReceivedContent) {
+                                    await this.logger.error('Ollama returned done without content', {
+                                        model,
+                                        endpoint: this.endpoint
+                                    });
+                                    throw new Error('Ollama returned done without providing any content');
+                                }
+                                yield { content: '', done: true };
+                                return;
+                            }
+                        } catch (e) {
+                            await this.logger.error('Failed to parse Ollama stream chunk', { 
+                                error: e instanceof Error ? e.message : String(e),
+                                line: trimmedLine,
+                                model,
+                                endpoint: this.endpoint
+                            });
+                            throw e;
+                        }
+                    }
+                }
+            } finally {
+                reader.releaseLock();
+            }
+        } catch (error) {
+            await this.logger.error('Ollama streaming failed', { 
+                endpoint: this.endpoint,
+                model,
+                error: error instanceof Error ? error.message : String(error)
+            });
+            throw error;
+        }
+    }
+
+    async configure(config: { model?: string; endpoint?: string }): Promise<void> {
+        if (config.model) {
+            this.validateModel(config.model, this.availableModels);
+            this.currentModel = config.model;
+        }
+
+        if (config.endpoint) {
+            if (!this.validateEndpoint(config.endpoint)) {
+                throw new Error('Invalid endpoint URL format. Please provide a valid HTTP/HTTPS URL.');
+            }
+            this.endpoint = config.endpoint;
+        }
+
+        await this.logger.debug('Ollama provider configured', {
+            model: this.currentModel,
+            endpoint: this.endpoint
+        });
+    }
+
+    private validateEndpoint(endpoint: string): boolean {
+        return this.ENDPOINT_PATTERN.test(endpoint);
     }
 }

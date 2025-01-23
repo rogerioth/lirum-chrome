@@ -1,20 +1,52 @@
-import { LLMProvider, LLMResponse, LLMOptions } from './LLMProvider';
+import { LLMProvider, LLMResponse, LLMOptions, LLMStreamResponse } from './LLMProvider';
 import { Logger } from '../utils/Logger';
+import { KeyedProvider } from './KeyedProvider';
 
-export class LMStudioProvider implements LLMProvider {
+export class LMStudioProvider extends KeyedProvider implements LLMProvider {
   name = 'LM Studio';
   defaultModel = 'local-model';
   availableModels = ['local-model'];
   defaultEndpoint = 'http://localhost:1234';
-
-  private endpoint: string | null = null;
   private currentModel: string;
-  private readonly logger: Logger;
+  private endpoint: string;
+  private readonly API_URL = '/v1/chat/completions';
   private readonly ENDPOINT_PATTERN = /^https?:\/\/[^\s/$.?#].[^\s]*$/i;
+  protected readonly logger: Logger;
 
   constructor() {
+    super();
     this.currentModel = this.defaultModel;
+    this.endpoint = this.defaultEndpoint;
     this.logger = Logger.getInstance();
+  }
+
+  async test(apiKey?: string, endpoint?: string): Promise<void> {
+    const testEndpoint = endpoint || this.defaultEndpoint;
+    if (!this.validateEndpoint(testEndpoint)) {
+      throw new Error('Invalid endpoint URL format. Please provide a valid HTTP/HTTPS URL.');
+    }
+
+    try {
+      await this.logger.info('Testing LM Studio connection', { endpoint: testEndpoint });
+
+      const response = await fetch(`${testEndpoint}/v1/models`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error?.message || 'Failed to connect to LM Studio');
+      }
+
+      await this.logger.info('LM Studio provider validated successfully');
+    } catch (error) {
+      await this.logger.error('LM Studio test failed', { 
+        endpoint: testEndpoint,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      throw error;
+    }
   }
 
   private getEndpointUrl(path: string): string {
@@ -45,60 +77,20 @@ export class LMStudioProvider implements LLMProvider {
     }
   }
 
-  async test(apiKey?: string, endpoint?: string): Promise<void> {
-    try {
-      const testEndpoint = endpoint || this.defaultEndpoint;
-      if (!this.validateEndpoint(testEndpoint)) {
-        throw new Error('Invalid endpoint URL format. Please provide a valid HTTP/HTTPS URL.');
-      }
-
-      await this.logger.info('Testing LM Studio connection', { endpoint: testEndpoint });
-
-      // Temporarily set endpoint for testing
-      const originalEndpoint = this.endpoint;
-      this.endpoint = testEndpoint;
-
-      try {
-        // Test the endpoint with a simple models list request
-        const response = await this.fetchWithExtension(this.getEndpointUrl('models'), {
-          method: 'GET',
-          headers: { 'Content-Type': 'application/json' }
-        });
-
-        const data = await response.json();
-        await this.logger.info('LM Studio models available', { models: data.data });
-      } finally {
-        // Restore original endpoint
-        this.endpoint = originalEndpoint;
-      }
-
-    } catch (error) {
-      await this.logger.error('LM Studio test failed', { 
-        endpoint: endpoint || this.defaultEndpoint,
-        error: error instanceof Error ? error.message : String(error)
-      });
-      throw error;
-    }
-  }
-
   async complete(prompt: string, options: LLMOptions = {}): Promise<LLMResponse> {
     if (!this.endpoint) {
       throw new Error('Endpoint not configured');
     }
 
-    const model = this.currentModel;
-    await this.logger.debug('LM Studio request config', { 
-      endpoint: this.endpoint,
-      model,
-      options
-    });
-
     const requestBody = {
-      model,
+      model: this.currentModel,
       messages: [{ role: 'user', content: prompt }],
-      temperature: options.temperature || 0.7,
-      max_tokens: options.maxTokens || 1000,
-      top_p: 1,
+      temperature: options.temperature ?? 0.7,
+      max_tokens: options.maxTokens,
+      top_p: options.topP ?? 1,
+      frequency_penalty: options.frequencyPenalty ?? 0,
+      presence_penalty: options.presencePenalty ?? 0,
+      stop: options.stop,
       stream: false
     };
 
@@ -111,39 +103,20 @@ export class LMStudioProvider implements LLMProvider {
         body: JSON.stringify(requestBody)
       });
 
-      let data;
-      try {
-        data = await response.json();
-      } catch (e) {
-        // Log the raw response if JSON parsing fails
-        const rawText = await response.text();
-        await this.logger.error('Failed to parse LM Studio response', {
-          rawResponse: rawText,
-          error: e instanceof Error ? e.message : String(e)
-        });
-        throw new Error('Invalid JSON response from LM Studio API');
-      }
-
-      // Log the full response for debugging
-      const headerObj: Record<string, string> = {};
-      response.headers.forEach((value, key) => {
-        headerObj[key] = value;
-      });
-
-      await this.logger.debug('LM Studio raw response', { 
-        data,
-        statusCode: response.status,
-        headers: headerObj
-      });
-
+      const data = await response.json();
+      
       if (!data.choices?.[0]?.message?.content) {
-        await this.logger.error('Invalid LM Studio response format', { response: data });
         throw new Error('Invalid response format from LM Studio API');
       }
 
+      await this.logger.llm('LM Studio completion successful', {
+        model: this.currentModel,
+        usage: data.usage
+      });
+
       return {
         content: data.choices[0].message.content,
-        model,
+        model: this.currentModel,
         usage: {
           promptTokens: data.usage?.prompt_tokens ?? 0,
           completionTokens: data.usage?.completion_tokens ?? 0,
@@ -152,33 +125,126 @@ export class LMStudioProvider implements LLMProvider {
         raw: data
       };
     } catch (error) {
-      await this.logger.error('LM Studio completion failed', { 
-        endpoint: this.endpoint,
-        model,
-        error: error instanceof Error ? error.message : String(error)
-      });
+      await this.logger.error('LM Studio completion failed', { error });
       throw error;
     }
   }
 
-  getCurrentModel(): string {
-    return this.currentModel;
+  async *completeStream(prompt: string, options: LLMOptions = {}): AsyncGenerator<LLMStreamResponse> {
+    if (!this.endpoint) {
+      throw new Error('Endpoint not configured');
+    }
+
+    const requestBody = {
+      model: this.currentModel,
+      messages: [{ role: 'user', content: prompt }],
+      temperature: options.temperature ?? 0.7,
+      max_tokens: options.maxTokens,
+      top_p: options.topP ?? 1,
+      frequency_penalty: options.frequencyPenalty ?? 0,
+      presence_penalty: options.presencePenalty ?? 0,
+      stop: options.stop,
+      stream: true
+    };
+
+    try {
+      const response = await this.fetchWithExtension(this.getEndpointUrl('chat/completions'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(requestBody)
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error?.message || 'LM Studio API request failed');
+      }
+
+      if (!response.body) {
+        throw new Error('Response body is null');
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          
+          if (done) {
+            yield { content: '', done: true };
+            break;
+          }
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            const trimmedLine = line.trim();
+            if (!trimmedLine || trimmedLine === 'data: [DONE]') {
+              if (trimmedLine === 'data: [DONE]') {
+                yield { content: '', done: true };
+                return;
+              }
+              continue;
+            }
+
+            if (trimmedLine.startsWith('data: ')) {
+              try {
+                const data = JSON.parse(trimmedLine.slice(6));
+                if (data.choices?.[0]?.delta?.content) {
+                  yield {
+                    content: data.choices[0].delta.content,
+                    done: false
+                  };
+                }
+                // Check for completion in the delta
+                if (data.choices?.[0]?.finish_reason === 'stop') {
+                  yield { content: '', done: true };
+                  return;
+                }
+              } catch (e) {
+                await this.logger.error('Failed to parse streaming response', { error: e });
+              }
+            }
+          }
+        }
+      } finally {
+        reader.releaseLock();
+      }
+    } catch (error) {
+      await this.logger.error('LM Studio streaming failed', { error });
+      throw error;
+    }
   }
 
-  setModel(model: string): void {
-    this.currentModel = model;
-    this.logger.debug('LM Studio model set', { model });
+  async configure(config: { model?: string; endpoint?: string }): Promise<void> {
+    if (config.model) {
+      this.validateModel(config.model, this.availableModels);
+      this.currentModel = config.model;
+    }
+
+    if (config.endpoint) {
+      if (!this.validateEndpoint(config.endpoint)) {
+        throw new Error('Invalid endpoint URL format. Please provide a valid HTTP/HTTPS URL.');
+      }
+      this.endpoint = config.endpoint;
+    }
+
+    await this.logger.debug('LM Studio provider configured', {
+      model: this.currentModel,
+      endpoint: this.endpoint
+    });
   }
 
-  validateEndpoint(endpoint: string): boolean {
+  private validateEndpoint(endpoint: string): boolean {
     return this.ENDPOINT_PATTERN.test(endpoint);
   }
 
-  setEndpoint(endpoint: string): void {
-    if (!this.validateEndpoint(endpoint)) {
-      throw new Error('Invalid endpoint URL format');
-    }
-    this.endpoint = endpoint;
-    this.logger.debug('LM Studio endpoint set', { endpoint });
+  validateApiKey(apiKey: string): boolean {
+    return true; // LM Studio doesn't use API keys
   }
 }

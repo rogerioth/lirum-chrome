@@ -8,6 +8,11 @@
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
 </head>
 <body>
+  <div class="titlebar">
+    <img src="../assets/icon128.png" alt="Lirum Logo" class="titlebar-logo">
+    <h1 class="titlebar-text">Lirum Settings</h1>
+  </div>
+  
   <div class="app-container">
     <!-- Sidebar -->
     <aside class="sidebar">
@@ -26,9 +31,21 @@
             </a>
           </li>
           <li class="nav-item">
-            <a href="#settings" class="nav-link">
+            <a href="#storage" class="nav-link">
+              <i class="nav-icon fa-solid fa-database"></i>
+              <span>Storage</span>
+            </a>
+          </li>
+          <li class="nav-item">
+            <a href="#logs" class="nav-link">
               <i class="nav-icon fa-solid fa-gear"></i>
-              <span>Settings</span>
+              <span>Logs</span>
+            </a>
+          </li>
+          <li class="nav-item">
+            <a href="#about" class="nav-link">
+              <i class="nav-icon fa-solid fa-circle-info"></i>
+              <span>About</span>
             </a>
           </li>
         </ul>
@@ -107,10 +124,29 @@
         </div>
       </section>
 
-      <!-- Settings Section -->
-      <section id="settings" class="content-section">
+      <!-- Storage Section -->
+      <section id="storage" class="content-section">
         <div class="section-header">
-          <h1>Settings</h1>
+          <h1>Storage</h1>
+          <div class="header-actions">
+            <button id="refresh-storage" class="button secondary">
+              <i class="fa-solid fa-rotate"></i>
+              Refresh
+            </button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="storage-container">
+            <pre id="storage-output" class="storage-output"></pre>
+          </div>
+        </div>
+      </section>
+
+      <!-- Logs Section -->
+      <section id="logs" class="content-section">
+        <div class="section-header">
+          <h1>Logs</h1>
           <div class="header-actions">
             <button id="copy-logs" class="button secondary">
               <i class="fa-solid fa-clipboard"></i>
@@ -149,6 +185,62 @@
             <div id="logs-output" class="logs-output"></div>
           </div>
         </div>
+
+        <div class="settings-section">
+          <h3>Factory Reset</h3>
+          <p>Reset all settings to their default values. This will remove all providers and reset commands to defaults.</p>
+          <button id="factory-reset" class="danger">Factory Reset</button>
+        </div>
+      </section>
+
+      <!-- About Section -->
+      <section id="about" class="content-section">
+        <div class="section-header">
+          <h1>About Lirum</h1>
+        </div>
+
+        <div class="about-container">
+          <div class="about-logo-section">
+            <img src="../assets/icon128.png" alt="Lirum Logo" class="about-logo">
+            <h2>Lirum Chrome Extension</h2>
+          </div>
+          
+          <div class="about-content">
+            <div class="about-card">
+              <h3>About Us</h3>
+              <p>Lirum is developed by Lirum Labs Technologies, a company dedicated to creating innovative tools that enhance your browsing experience.</p>
+            </div>
+
+            <div class="about-card">
+              <h3>Contact & Legal</h3>
+              <div class="about-links">
+                <a href="https://www.lirumlabs.com" target="_blank" class="about-link">
+                  <i class="fa-solid fa-globe"></i>
+                  Visit our website
+                </a>
+                <a href="https://lirumlabs.com/privacy-policy/" target="_blank" class="about-link">
+                  <i class="fa-solid fa-shield-halved"></i>
+                  Privacy Policy
+                </a>
+                <a href="https://github.com/rogerioth/lirum-chrome" target="_blank" class="about-link">
+                  <i class="fa-brands fa-github"></i>
+                  View on GitHub
+                </a>
+              </div>
+              <div class="license-info">
+                <p><small>Licensed under the MIT License. Copyright &copy; 2024 Lirum Labs Technologies.<br>
+                Permission is granted to use and modify this software, provided the above copyright notice is included.</small></p>
+              </div>
+            </div>
+
+            <div class="about-card">
+              <h3>Version Information</h3>
+              <div class="version-info">
+                <span id="extension-version">Version: </span>
+              </div>
+            </div>
+          </div>
+        </div>
       </section>
     </main>
   </div>
@@ -161,7 +253,7 @@
           <i class="fa-solid fa-brain modal-icon"></i>
           <h2>Add Provider</h2>
         </div>
-        <button class="close-button">×</button>
+        <button class="close-button"><i class="fa-solid fa-xmark"></i></button>
       </div>
       <div class="modal-body">
         <div class="form-group">
@@ -211,7 +303,7 @@
           <i class="fa-solid fa-terminal modal-icon"></i>
           <h2 id="command-modal-title">Add Command</h2>
         </div>
-        <button class="close-button">×</button>
+        <button class="close-button"><i class="fa-solid fa-xmark"></i></button>
       </div>
       <div class="modal-body">
         <div class="form-group">
@@ -232,11 +324,11 @@
       </div>
       <div class="modal-footer">
         <button id="save-command" class="button primary">Save</button>
-        <button class="button secondary close-button">Cancel</button>
+        <button id="cancel-command" class="button secondary">Cancel</button>
       </div>
     </div>
   </div>
 
-  <script src="options.js"></script>
+  <script src="./options.js"></script>
 </body>
 </html>
