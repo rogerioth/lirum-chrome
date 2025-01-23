@@ -30,6 +30,7 @@
   - [Testing](#testing)
 - [Contributing](#contributing)
 - [License](#license)
+- [Screenshots](#screenshots)
 
 ## Overview
 
@@ -188,6 +189,14 @@ We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) f
 
 ## License
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Screenshots
+
+### Main Interface
+<img src="screenshots/main-interface.png" alt="Lirum Main Interface"/>
+
+### Settings Page
+<img src="screenshots/settings.png" alt="Lirum Settings Page"/>
 
 ---
 
