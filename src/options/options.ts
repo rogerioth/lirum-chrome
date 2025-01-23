@@ -81,6 +81,7 @@ class OptionsManager {
         this.initializeEventListeners();
         this.loadSettings();
         this.displayStorageData();  // Initialize storage display
+        this.displayVersion();  // Display the extension version
     }
 
     private getProviderInstance(type: ProviderType): LLMProvider {
@@ -1082,6 +1083,23 @@ class OptionsManager {
         } catch (error) {
             await this.logger.error('Failed to display storage data', { error });
             this.showMessage('Failed to load storage data', true);
+        }
+    }
+
+    private async displayVersion(): Promise<void> {
+        try {
+            const versionElement = document.getElementById('extension-version');
+            if (!versionElement) {
+                this.logger.error('Version element not found');
+                return;
+            }
+
+            const manifest = chrome.runtime.getManifest();
+            versionElement.textContent = `Version: ${manifest.version}`;
+            this.logger.info(`Set version to: ${manifest.version}`);
+        } catch (error: unknown) {
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            this.logger.error('Error displaying version:', { error: errorMessage });
         }
     }
 }
