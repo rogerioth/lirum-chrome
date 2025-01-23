@@ -1,7 +1,7 @@
 # Lirum Chrome LLMs
 
 <div align="center">
-  <img src="src/assets/logo.png" alt="Lirum Chrome LLMs Logo" width="200"/>
+  <img src="src/assets/icon128.png" alt="Lirum Chrome LLMs Logo" width="128"/>
   <p>A powerful Chrome extension for seamless integration of Large Language Models into your browsing experience.</p>
 </div>
 
@@ -78,7 +78,7 @@ Out-of-the-box integration with leading LLM providers:
 ### Installation
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/lirum-chrome.git
+   git clone https://github.com/rogerioth/lirum-chrome.git
    cd lirum-chrome
    ```
 
@@ -192,5 +192,5 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ---
 
 <div align="center">
-  <p>Made with ❤️ by the Lirum team</p>
+  <p>Made with ❤️ by Lirum Labs Technologies</p>
 </div>
