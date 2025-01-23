@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Lirum Chrome LLMs",
   "version": "1.0.0",
-  "description": "Enhance your browsing with multiple LLMs. Analyze, summarize, and interact with web content using your preferred AI providers and custom commands.",
+  "description": "Send any page to your preferred LLMs. Analyze, summarize and create custom commands.",
   "permissions": [
     "storage",
     "activeTab",
