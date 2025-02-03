@@ -52,6 +52,34 @@ const classNames = (...classes: (string | boolean | undefined)[]) => {
     return classes.filter(Boolean).join(' ');
 };
 
+interface ErrorBarProps {
+    message: string;
+    onClose: () => void;
+}
+
+const ErrorBar: React.FC<ErrorBarProps> = ({ message, onClose }) => {
+    useEffect(() => {
+        // Auto-dismiss after 5 seconds
+        const timer = setTimeout(() => {
+            onClose();
+        }, 5000);
+
+        return () => clearTimeout(timer);
+    }, [message, onClose]);
+
+    return (
+        <div className="error-bar">
+            <div className="error-content">
+                <i className="fa-solid fa-exclamation-circle"></i>
+                <span>{message}</span>
+            </div>
+            <button onClick={onClose} className="error-close">
+                <i className="fa-solid fa-times"></i>
+            </button>
+        </div>
+    );
+};
+
 const NoProvidersMessage: React.FC = () => {
     const handleSettings = () => {
         StorageManager.getInstance().openOptionsPage();
@@ -332,10 +360,11 @@ export const Popup: React.FC = () => {
             });
 
         } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
             setState(prev => ({
                 ...prev,
                 isLoading: false,
-                error: error instanceof Error ? error.message : String(error),
+                error: `Failed to process content: ${errorMessage}`,
                 isProcessing: false
             }));
         }
@@ -387,6 +416,14 @@ export const Popup: React.FC = () => {
             document.body.classList.remove('fullpage-mode');
         };
     }, [isFullPage]);
+
+    const clearError = () => {
+        setState(prev => ({ ...prev, error: null }));
+    };
+
+    const showError = (message: string) => {
+        setState(prev => ({ ...prev, error: message }));
+    };
 
     if (state.isInitializing) {
         return (
@@ -445,7 +482,17 @@ export const Popup: React.FC = () => {
     }
 
     return (
-        <div className={classNames('popup-container', isFullPage && 'fullpage')}>
+        <div className={classNames(
+            'popup-container', 
+            isFullPage && 'fullpage',
+            state.error && 'has-error'
+        )}>
+            {state.error && (
+                <ErrorBar 
+                    message={state.error} 
+                    onClose={clearError}
+                />
+            )}
             <div className="header-section">
                 <div className="header-icon">
                     <img src="../assets/icon128.png" alt="Lirum Logo" />
