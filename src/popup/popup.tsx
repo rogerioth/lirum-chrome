@@ -485,7 +485,7 @@ export const Popup: React.FC = () => {
         <div className={classNames(
             'popup-container', 
             isFullPage && 'fullpage',
-            state.error && 'has-error'
+            Boolean(state.error) && 'has-error'
         )}>
             {state.error && (
                 <ErrorBar 
