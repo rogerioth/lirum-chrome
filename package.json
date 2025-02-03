@@ -1,6 +1,6 @@
 {
   "name": "lirum-chrome",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "Chrome extension that automatically ingests the current page's content into your preferred LLM. Summarize, analyze, and process text on the fly—no extra steps or copy-paste required. Perfect for research, quick reads, and streamlined workflows.",
   "main": "dist/background/background.js",
   "type": "module",
