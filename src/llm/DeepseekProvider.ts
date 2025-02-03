@@ -8,7 +8,6 @@ export class DeepseekProvider extends KeyedProvider implements LLMProvider {
   availableModels = ['deepseek-chat', 'deepseek-coder'];
   defaultEndpoint = 'https://api.deepseek.com';
 
-  private readonly API_URL = 'https://api.deepseek.com/v1/chat/completions';
   protected readonly logger: Logger;
   private readonly API_KEY_PATTERN = /^.{5,}$/;
   private readonly ENDPOINT_PATTERN = /^https?:\/\/[^\s/$.?#].[^\s]*$/i;
@@ -29,9 +28,15 @@ export class DeepseekProvider extends KeyedProvider implements LLMProvider {
       throw new Error('Invalid API key format. Key should be at least 5 characters long.');
     }
 
+    const testEndpoint = endpoint || this.defaultEndpoint;
+    if (!this.validateEndpoint(testEndpoint)) {
+      throw new Error('Invalid endpoint URL format');
+    }
+
     // Test the API key with a simple models list request
     try {
-      const testEndpoint = endpoint || this.endpoint;
+      await this.logger.info('Testing Deepseek connection', { endpoint: testEndpoint });
+
       const response = await fetch(`${testEndpoint}/v1/models`, {
         headers: {
           'Authorization': `Bearer ${apiKey}`
@@ -41,6 +46,11 @@ export class DeepseekProvider extends KeyedProvider implements LLMProvider {
       if (!response.ok) {
         const error = await response.json();
         throw new Error(error.error?.message || 'Failed to validate API key');
+      }
+
+      // Update endpoint if test was successful
+      if (endpoint) {
+        this.endpoint = endpoint;
       }
 
       await this.logger.info('Deepseek provider validated successfully');

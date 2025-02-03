@@ -39,7 +39,20 @@ export class LMStudioProvider extends KeyedProvider implements LLMProvider {
         throw new Error(error.error?.message || 'Failed to connect to LM Studio');
       }
 
-      await this.logger.info('LM Studio provider validated successfully');
+      // Update the endpoint if test was successful
+      if (endpoint) {
+        this.endpoint = endpoint;
+      }
+
+      // Get available models from the server
+      const data = await response.json();
+      if (data.data) {
+        this.availableModels = data.data.map((model: any) => model.id);
+      }
+
+      await this.logger.info('LM Studio provider validated successfully', {
+        models: this.availableModels
+      });
     } catch (error) {
       await this.logger.error('LM Studio test failed', { 
         endpoint: testEndpoint,
@@ -223,7 +236,7 @@ export class LMStudioProvider extends KeyedProvider implements LLMProvider {
 
   async configure(config: { model?: string; endpoint?: string }): Promise<void> {
     if (config.model) {
-      this.validateModel(config.model, this.availableModels);
+      // Don't validate against availableModels since they're dynamic
       this.currentModel = config.model;
     }
 

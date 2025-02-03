@@ -5,18 +5,7 @@ import { KeyedProvider } from './KeyedProvider';
 export class OllamaProvider extends KeyedProvider implements LLMProvider {
     name = 'Ollama';
     defaultModel = 'llama2';
-    availableModels = [
-        'llama2',
-        'llama2-uncensored',
-        'llama2:13b',
-        'llama2:70b',
-        'codellama',
-        'mistral',
-        'mixtral',
-        'phi',
-        'neural-chat',
-        'starling-lm'
-    ];
+    availableModels = [];
     defaultEndpoint = 'http://localhost:11434';
     private currentModel: string;
     private endpoint: string;
@@ -76,14 +65,25 @@ export class OllamaProvider extends KeyedProvider implements LLMProvider {
 
             await this.logger.info('Testing Ollama connection', { endpoint: testEndpoint });
 
-            // Test the endpoint with a simple models list request
+            // Test the endpoint with a models list request
             const response = await this.fetchWithExtension(`${testEndpoint}/api/tags`, {
                 method: 'GET',
                 headers: { 'Content-Type': 'application/json' }
             });
 
             const data = await response.json();
-            await this.logger.info('Ollama models available', { models: data.models });
+            // Update availableModels with the models from the server
+            this.availableModels = data.models?.map((model: any) => model.name) || [];
+            
+            await this.logger.info('Ollama models available', { 
+                models: this.availableModels,
+                endpoint: testEndpoint
+            });
+
+            // If we have a specific endpoint, update it
+            if (endpoint) {
+                this.endpoint = endpoint;
+            }
 
         } catch (error) {
             await this.logger.error('Ollama test failed', { 
@@ -257,7 +257,6 @@ export class OllamaProvider extends KeyedProvider implements LLMProvider {
 
     async configure(config: { model?: string; endpoint?: string }): Promise<void> {
         if (config.model) {
-            this.validateModel(config.model, this.availableModels);
             this.currentModel = config.model;
         }
 

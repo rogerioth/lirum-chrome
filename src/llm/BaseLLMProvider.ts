@@ -15,7 +15,7 @@ export abstract class BaseLLMProvider {
         if (!model) {
             throw new Error('Model cannot be empty');
         }
-        if (!availableModels.includes(model)) {
+        if (availableModels.length > 0 && !availableModels.includes(model)) {
             throw new Error(`Invalid model: ${model}. Available models: ${availableModels.join(', ')}`);
         }
     }

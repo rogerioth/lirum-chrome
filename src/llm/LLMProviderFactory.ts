@@ -58,6 +58,14 @@ export class LLMProviderFactory {
         return instance;
     }
 
+    static async configureProvider(type: ProviderType, config: { apiKey?: string; model?: string; endpoint?: string }): Promise<void> {
+        const provider = this.getProvider(type);
+        await provider.configure(config);
+        
+        // Clear the instance after configuration to ensure a fresh instance next time
+        this.clearProvider(type);
+    }
+
     static getProviderTypes(): ProviderType[] {
         return Object.keys(this.providers) as ProviderType[];
     }

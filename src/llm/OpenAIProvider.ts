@@ -32,13 +32,13 @@ export class OpenAIProvider extends KeyedProvider implements LLMProvider {
       throw new Error('Invalid API key format. Key should be at least 5 characters long.');
     }
 
-    if (endpoint && !this.validateEndpoint(endpoint)) {
+    const testEndpoint = endpoint || this.defaultEndpoint;
+    if (!this.validateEndpoint(testEndpoint)) {
       throw new Error('Invalid endpoint URL format');
     }
 
     // Test the API key with a simple models list request
     try {
-      const testEndpoint = endpoint || this.defaultEndpoint;
       await this.logger.info('Testing OpenAI connection', { endpoint: testEndpoint });
 
       const response = await fetch(`${testEndpoint}/v1/models`, {
@@ -53,9 +53,20 @@ export class OpenAIProvider extends KeyedProvider implements LLMProvider {
       }
 
       const data = await response.json();
+      
+      // Update endpoint if test was successful
+      if (endpoint) {
+        this.endpoint = endpoint;
+      }
+
+      // Update available models from the server
+      if (data.data) {
+        this.availableModels = data.data.map((m: any) => m.id);
+      }
+
       await this.logger.info('OpenAI models available', { 
         modelCount: data.data?.length,
-        models: data.data?.slice(0, 5).map((m: any) => m.id)
+        models: this.availableModels.slice(0, 5)
       });
 
     } catch (error) {

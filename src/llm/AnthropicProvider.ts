@@ -17,7 +17,6 @@ export class AnthropicProvider extends KeyedProvider implements LLMProvider {
 
   private currentModel: string;
   protected readonly logger: Logger;
-  private readonly API_URL = 'https://api.anthropic.com/v1/messages';
   private readonly API_VERSION = '2023-06-01';
   private readonly API_KEY_PATTERN = /^.{5,}$/;
   private readonly ENDPOINT_PATTERN = /^https?:\/\/[^\s/$.?#].[^\s]*$/i;
@@ -38,6 +37,9 @@ export class AnthropicProvider extends KeyedProvider implements LLMProvider {
     }
 
     const testEndpoint = endpoint || this.defaultEndpoint;
+    if (!this.validateEndpoint(testEndpoint)) {
+      throw new Error('Invalid endpoint URL format');
+    }
 
     // Test the API key with a simple messages request
     try {
@@ -61,6 +63,11 @@ export class AnthropicProvider extends KeyedProvider implements LLMProvider {
       if (!response.ok) {
         const error = await response.json();
         throw new Error(error.error?.message || 'Failed to validate API key');
+      }
+
+      // Update endpoint if test was successful
+      if (endpoint) {
+        this.endpoint = endpoint;
       }
 
       await this.logger.info('Anthropic provider validated successfully');
