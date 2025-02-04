@@ -4,13 +4,18 @@ import { KeyedProvider } from './KeyedProvider';
 
 export class OpenAIProvider extends KeyedProvider implements LLMProvider {
   name = 'OpenAI';
-  defaultModel = 'gpt-3.5-turbo';
+  defaultModel = 'gpt-4o-mini-latest';
   availableModels = [
-    'gpt-4',
-    'gpt-4-turbo-preview',
-    'gpt-3.5-turbo',
-    'gpt-3.5-turbo-16k'
+    'gpt-4o-latest',
+    'gpt-4o-mini-latest',
+    'gpt-4-turbo-latest',
+    'gpt-3.5-turbo-latest',
+    'gpt-4o-2024-10-21',
+    'gpt-4o-mini-2024-10-21',
+    'gpt-4-turbo-2024-10-21',
+    'gpt-3.5-turbo-2024-10-21'
   ];
+
   defaultEndpoint = 'https://api.openai.com';
 
   private apiKey: string | null = null;

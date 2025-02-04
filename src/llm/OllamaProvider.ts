@@ -4,7 +4,7 @@ import { KeyedProvider } from './KeyedProvider';
 
 export class OllamaProvider extends KeyedProvider implements LLMProvider {
     name = 'Ollama';
-    defaultModel = 'llama2';
+    defaultModel = 'llama3.3';
     availableModels = [];
     defaultEndpoint = 'http://localhost:11434';
     private currentModel: string;
